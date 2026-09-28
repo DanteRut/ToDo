@@ -24,15 +24,30 @@ function makeClient() {
   return client
 }
 
+async function prepareUserCache(user) {
+  if (!user) return
+  const previous = localStorage.getItem('momentum.cloudUserId')
+  if (previous && previous !== user.id) {
+    await db.records.clear()
+    localStorage.removeItem('momentum.localTouched')
+    await store.reload()
+  }
+  localStorage.setItem('momentum.cloudUserId', user.id)
+}
+
 export async function initCloud() {
   if (!makeClient()) return
   const { data } = await client.auth.getSession()
+  await prepareUserCache(data.session?.user)
   cloud.user = data.session?.user || null
   cloud.connected = !!cloud.user
   client.auth.onAuthStateChange((_event, session) => {
-    cloud.user = session?.user || null
-    cloud.connected = !!session
-    if (session) setTimeout(() => syncNow(), 0)
+    setTimeout(async () => {
+      await prepareUserCache(session?.user)
+      cloud.user = session?.user || null
+      cloud.connected = !!session
+      if (session) await syncNow()
+    }, 0)
   })
   if (cloud.user) {
     await syncNow()
@@ -51,6 +66,7 @@ export async function signIn(email, password) {
   cloud.error = ''
   const { data, error } = await client.auth.signInWithPassword({ email, password })
   if (error) { cloud.error = error.message; throw error }
+  await prepareUserCache(data.user)
   cloud.user = data.user; cloud.connected = true
   await syncNow(); subscribe()
 }
@@ -66,6 +82,7 @@ export async function signUp(email, password) {
 
 export async function signOut() {
   channel?.unsubscribe()
+  channel = null
   await client?.auth.signOut()
   cloud.user = null; cloud.connected = false
 }
@@ -77,14 +94,25 @@ function subscribe() {
     .subscribe()
 }
 
+async function fetchRemoteRecords() {
+  const rows = []
+  const pageSize = 1000
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client.from('records').select('id,payload,updated_at,deleted_at').order('updated_at').range(from, from + pageSize - 1)
+    if (error) throw error
+    rows.push(...(data || []))
+    if (!data || data.length < pageSize) break
+  }
+  return rows
+}
+
 export async function syncNow() {
   if (!client || !cloud.user || cloud.syncing) return
   cloud.syncing = true; cloud.error = ''; store.state.syncing = true
   try {
     // Pull first: a brand-new device must not upload its demo seed into an existing account.
-    const { data, error } = await client.from('records').select('id,payload,updated_at,deleted_at')
-    if (error) throw error
-    if (data?.length && !localStorage.getItem('momentum.localTouched')) await db.records.clear()
+    const data = await fetchRemoteRecords()
+    if (data.length && !localStorage.getItem('momentum.localTouched')) await db.records.clear()
 
     const localBeforeMerge = new Map((await db.records.toArray()).map(r => [r.id, r]))
     const remoteUpdates = []

@@ -88,5 +88,6 @@ export const store = {
     await reload()
   },
   async allWithDeleted() { return db.records.toArray() },
+  async reset() { db.close(); await Dexie.delete('momentum-personal-os'); localStorage.removeItem('momentum.localTouched') },
   async reload() { await reload() }
 }
