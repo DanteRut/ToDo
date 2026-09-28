@@ -24,7 +24,7 @@ const nav = [
 const mobileNav = nav
 const view = ref('today')
 const quickOpen = ref(false), taskOpen = ref(false), workoutOpen = ref(false), cloudOpen = ref(false)
-const chainOpen = ref(false), habitOpen = ref(false), focusOpen = ref(false), workoutEditOpen = ref(false), historyOpen = ref(false), homeworkOpen = ref(false)
+const chainOpen = ref(false), habitOpen = ref(false), focusOpen = ref(false), focusPickerOpen = ref(false), workoutEditOpen = ref(false), historyOpen = ref(false), homeworkOpen = ref(false)
 const toast = ref(''), lastDeleted = ref(null), updateAvailable = ref(false), homeworkSaving = ref(false), homeworkError = ref('')
 const search = ref('')
 const taskFilter = ref('all'), selectedTag = ref('all')
@@ -39,6 +39,27 @@ const focusSeconds = ref(25*60), focusRunning = ref(false)
 let focusInterval
 const dragTaskId = ref(null)
 let timerInterval
+let audioContext
+let timerAudio
+
+function prepareTimerSound(){
+  const AudioContext=window.AudioContext||window.webkitAudioContext
+  if(AudioContext&&!audioContext)audioContext=new AudioContext()
+  audioContext?.resume?.()
+  if(!timerAudio){timerAudio=new window.Audio(`${import.meta.env.BASE_URL}sounds/timer-end.mp3`);timerAudio.preload='auto'}
+}
+function fallbackTimerBeep(){
+  const AudioContext=window.AudioContext||window.webkitAudioContext
+  if(!AudioContext)return
+  if(!audioContext)audioContext=new AudioContext()
+  audioContext.resume?.()
+  const now=audioContext.currentTime
+  ;[0,0.22,0.44].forEach((delay,index)=>{const oscillator=audioContext.createOscillator();const gain=audioContext.createGain();oscillator.type='sine';oscillator.frequency.value=index===2?880:660;gain.gain.setValueAtTime(0.001,now+delay);gain.gain.exponentialRampToValueAtTime(0.22,now+delay+0.015);gain.gain.exponentialRampToValueAtTime(0.001,now+delay+0.16);oscillator.connect(gain).connect(audioContext.destination);oscillator.start(now+delay);oscillator.stop(now+delay+0.18)})
+}
+async function playTimerSound(){
+  prepareTimerSound()
+  try{timerAudio.currentTime=0;await timerAudio.play()}catch{fallbackTimerBeep()}
+}
 
 const iconMap = { briefcase:BriefcaseBusiness, dumbbell:Dumbbell, activity:Activity, 'cup-soda':CupSoda, droplets:Droplets, 'heart-pulse':HeartPulse }
 const todayKey = computed(() => store.today())
@@ -55,7 +76,12 @@ const dayChains = computed(() => store.chains.value.filter(c => c.date === selec
 const looseTasks = computed(() => dayTasks.value.filter(t => !t.chainId))
 const completedCount = computed(() => dayTasks.value.filter(t => t.done).length)
 const progress = computed(() => dayTasks.value.length ? Math.round(completedCount.value/dayTasks.value.length*100) : 0)
-const activeTask = computed(() => smartNext(store.tasks.value.filter(t => t.date <= selectedDate.value), new Date()))
+const focusCandidates = computed(() => store.tasks.value.filter(t => !t.done && t.date <= selectedDate.value).sort((a,b)=>(a.date+(a.startTime||'99:99')).localeCompare(b.date+(b.startTime||'99:99'))))
+const focusRecord = computed(() => store.state.records.find(r=>r.type==='dayFocus'&&r.date===selectedDate.value))
+const activeTask = computed(() => {
+  const selected=store.tasks.value.find(t=>t.id===focusRecord.value?.taskId&&!t.done)
+  return selected||smartNext(focusCandidates.value,new Date())
+})
 const overdueTasks = computed(() => store.tasks.value.filter(t => !t.done && t.date < todayKey.value))
 const allTags = computed(() => [...new Set(store.tasks.value.flatMap(t => t.tags || []))].sort())
 const allFilteredTasks = computed(() => store.tasks.value.filter(t => {
@@ -193,14 +219,20 @@ async function moveAllOverdue(){
   flash(`${count} ${pluralize(count,['действие перенесено','действия перенесены','действий перенесено'])} на сегодня`)
   syncSoon()
 }
-function startFocus(){focusOpen.value=true;focusRunning.value=true;clearInterval(focusInterval);focusInterval=setInterval(()=>{if(focusSeconds.value>0)focusSeconds.value--;else{focusRunning.value=false;clearInterval(focusInterval);navigator.vibrate?.([200,100,200]);flash('Фокус-блок завершён')}},1000)}
+function startFocus(){prepareTimerSound();focusOpen.value=true;focusRunning.value=true;clearInterval(focusInterval);focusInterval=setInterval(()=>{if(focusSeconds.value>0)focusSeconds.value--;else{focusRunning.value=false;clearInterval(focusInterval);playTimerSound();navigator.vibrate?.([200,100,200]);flash('Фокус-блок завершён')}},1000)}
 function toggleFocusTimer(){if(focusRunning.value){clearInterval(focusInterval);focusRunning.value=false}else startFocus()}
 function resetFocus(){clearInterval(focusInterval);focusRunning.value=false;focusSeconds.value=Math.max(5,(activeTask.value?.duration||25))*60}
+async function selectDayFocus(task){
+  if(focusRecord.value)await store.save({...focusRecord.value,taskId:task.id})
+  else await store.add({type:'dayFocus',date:selectedDate.value,taskId:task.id})
+  focusPickerOpen.value=false;resetFocus();flash(`Фокус: ${task.title}`);syncSoon()
+}
+async function useSmartFocus(){if(focusRecord.value)await store.remove(focusRecord.value.id);focusPickerOpen.value=false;resetFocus();flash('Умный фокус включён');syncSoon()}
 
 function openHabit(h=null){const base={id:null,type:'habit',title:'',subtitle:'',icon:'activity',color:'#8b5cf6',kind:'trackable',timerMinutes:0,target:1,history:{},schedule:[1,2,3,4,5,6,0]};editingHabit.value={...base,...(h||{}),kind:h?.kind||(h?.title?.toLowerCase().includes('пульс')?'intention':'trackable'),timerMinutes:h?.timerMinutes||0,schedule:h?.schedule||base.schedule};habitOpen.value=true}
 function toggleHabitDay(day){const list=editingHabit.value.schedule||[];editingHabit.value.schedule=list.includes(day)?list.filter(d=>d!==day):[...list,day]}
-function startRitualTimer(habit){clearInterval(ritualInterval);ritualTimer.habit=habit;ritualTimer.seconds=Math.max(1,Number(habit.timerMinutes)||1)*60;ritualTimer.running=true;ritualInterval=setInterval(()=>{if(ritualTimer.seconds>0)ritualTimer.seconds--;else{clearInterval(ritualInterval);ritualTimer.running=false;navigator.vibrate?.([200,100,200]);flash(`${habit.title}: время вышло`) }},1000)}
-function toggleRitualTimer(){if(ritualTimer.running){clearInterval(ritualInterval);ritualTimer.running=false}else if(ritualTimer.seconds>0){ritualTimer.running=true;ritualInterval=setInterval(()=>{if(ritualTimer.seconds>0)ritualTimer.seconds--;else{clearInterval(ritualInterval);ritualTimer.running=false;navigator.vibrate?.([200,100,200]);flash('Таймер ритуала завершён')}},1000)}}
+function startRitualTimer(habit){prepareTimerSound();clearInterval(ritualInterval);ritualTimer.habit=habit;ritualTimer.seconds=Math.max(1,Number(habit.timerMinutes)||1)*60;ritualTimer.running=true;ritualInterval=setInterval(()=>{if(ritualTimer.seconds>0)ritualTimer.seconds--;else{clearInterval(ritualInterval);ritualTimer.running=false;playTimerSound();navigator.vibrate?.([200,100,200]);flash(`${habit.title}: время вышло`) }},1000)}
+function toggleRitualTimer(){if(ritualTimer.running){clearInterval(ritualInterval);ritualTimer.running=false}else if(ritualTimer.seconds>0){ritualTimer.running=true;ritualInterval=setInterval(()=>{if(ritualTimer.seconds>0)ritualTimer.seconds--;else{clearInterval(ritualInterval);ritualTimer.running=false;playTimerSound();navigator.vibrate?.([200,100,200]);flash('Таймер ритуала завершён')}},1000)}}
 function closeRitualTimer(){clearInterval(ritualInterval);ritualTimer.habit=null;ritualTimer.seconds=0;ritualTimer.running=false}
 async function saveHabit(){if(!editingHabit.value.title)return;editingHabit.value.id?await store.save(editingHabit.value):await store.add({...editingHabit.value,order:store.habits.value.length+1});habitOpen.value=false;flash('Привычка сохранена');syncSoon()}
 async function archiveHabit(){await store.save({...editingHabit.value,deleted:1});habitOpen.value=false;flash('Привычка архивирована');syncSoon()}
@@ -279,7 +311,7 @@ async function finishWorkout(){
     flash('Не удалось сохранить тренировку. Данные остались на экране — попробуй ещё раз.')
   }finally{workoutSaving.value=false}
 }
-function startTimer(seconds){timerSeconds.value=seconds;timerRunning.value=true;clearInterval(timerInterval);timerInterval=setInterval(()=>{if(timerSeconds.value>0)timerSeconds.value--;else{stopTimer();navigator.vibrate?.([200,100,200]);flash('Отдых окончен')}} ,1000)}
+function startTimer(seconds){prepareTimerSound();timerSeconds.value=seconds;timerRunning.value=true;clearInterval(timerInterval);timerInterval=setInterval(()=>{if(timerSeconds.value>0)timerSeconds.value--;else{stopTimer();playTimerSound();navigator.vibrate?.([200,100,200]);flash('Отдых окончен')}} ,1000)}
 function stopTimer(){clearInterval(timerInterval);timerRunning.value=false}
 function timerText(s){return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`}
 
@@ -333,7 +365,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
                 <h2 style="font-size:21px;margin:7px 0 5px">{{activeTask?.title || 'День свободен — выбери главное'}}</h2>
                 <div style="font-size:11px;color:#858894">{{activeTask ? `${activeTask.startTime||'Без времени'} · ${activeTask.duration||0} мин · ${stageLabel(activeTask.stage)}` : 'Добавь цепочку действий, и план станет ясным'}}</div>
                 <div class="progress-row"><div class="progress-track"><div class="progress-fill" :style="{width:progress+'%'}"></div></div><div class="progress-label">{{progress}}%</div></div>
-                <button v-if="activeTask" class="focus-launch" @click="resetFocus();startFocus()"><Maximize2 :size="15"/> Режим «Сейчас»</button>
+                <div v-if="activeTask" class="focus-controls"><button class="focus-change" @click="focusPickerOpen=true"><SlidersHorizontal :size="14"/> Сменить фокус</button><button class="focus-launch" @click="resetFocus();startFocus()"><Maximize2 :size="15"/> Режим «Сейчас»</button></div>
               </div>
 
               <div v-if="dailyHomework.length || nextDayClasses.length" class="section-head"><div><h2>Домашнее задание</h2><div class="section-meta">Все невыполненные задания остаются здесь до завершения</div></div><span v-if="dailyHomework.length" class="section-meta">{{dailyHomework.length}} осталось</span></div><div v-if="dailyHomework.length || nextDayClasses.length" class="homework-today card"><div v-for="item in dailyHomework" :key="item.id" class="homework-row" :class="{overdue:item.dueDate<selectedDate}"><button class="check" @click="toggleHomework(item)"><Check v-if="item.done" :size="13"/></button><div @click="openHomework({id:item.lessonId,subject:item.subject,kind:item.lessonKind,room:item.room},item.dueDate,item)"><strong>{{item.title}}</strong><span>{{item.subject}} · к {{format(parseISO(item.dueDate),'d MMMM',{locale:ru})}}</span></div><AlertCircle v-if="item.dueDate<selectedDate" :size="14" color="#fb7185"/><span v-else class="homework-due">{{format(parseISO(item.dueDate),'d MMM')}}</span></div><button v-for="lesson in nextDayClasses.filter(lesson=>!homeworkForOccurrence(lesson,nextDayKey).length)" :key="lesson.id" class="homework-prompt" @click="openHomework(lesson,nextDayKey)"><Plus :size="14"/><span><strong>Добавить ДЗ к {{lesson.subject}}</strong><small>Ближайшая пара · {{format(parseISO(nextDayKey),'d MMM',{locale:ru})}}, {{lesson.start}}</small></span></button></div>
@@ -402,6 +434,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
             <div class="card setting-card"><Cloud :size="21" color="#a78bfa"/><h3 style="margin-top:12px">Синхронизация устройств</h3><p>{{cloud.connected?`Выполнен вход: ${cloud.user?.email}. Последняя синхронизация ${formatSync()}.`:'Подключите бесплатный Supabase, чтобы один план был доступен на iPhone и компьютере.'}}</p><button class="primary-btn" @click="cloudOpen=true">{{cloud.connected?'Управление облаком':'Подключить облако'}}</button></div>
             <div class="card setting-card"><ShieldCheck :size="21" color="#34d399"/><h3 style="margin-top:12px">Резервная копия</h3><p>Полная копия задач, связей, привычек и истории тренировок в переносимом JSON.</p><div class="row"><button class="ghost-btn" @click="exportData"><Download :size="15"/> Скачать</button><label class="ghost-btn"><Upload :size="15"/> Восстановить<input type="file" accept="application/json" hidden @change="importData"/></label></div></div>
             <div class="card setting-card"><RefreshCw :size="21" color="#60a5fa"/><h3 style="margin-top:12px">Обновление данных</h3><p>Принудительно отправить локальные изменения и получить свежий план со всех устройств.</p><button class="ghost-btn" :disabled="!cloud.connected" @click="doSync"><RefreshCw :size="15" :class="{spin:cloud.syncing}"/> Синхронизировать</button></div>
+            <div class="card setting-card"><Timer :size="21" color="#f59e0b"/><h3 style="margin-top:12px">Звук таймеров</h3><p>Используется файл <code>public/sounds/timer-end.mp3</code>. Пока файла нет, приложение воспроизводит встроенный тройной сигнал.</p><button class="ghost-btn" @click="playTimerSound"><Play :size="15"/> Проверить звук</button></div>
             <div class="card setting-card"><Trash2 :size="21" color="#fb7185"/><h3 style="margin-top:12px">Начать заново</h3><p>Удаляет данные только на текущем устройстве. Используйте осторожно.</p><button class="ghost-btn danger-btn" @click="resetData">Сбросить локальные данные</button></div>
           </div>
         </template>
@@ -432,6 +465,8 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
     <Transition name="fade"><div v-if="habitOpen" class="modal-backdrop" @click.self="habitOpen=false"><div class="modal"><div class="modal-head"><div class="modal-title">{{editingHabit.id?'Настроить привычку':'Новая привычка'}}</div><button class="close" @click="habitOpen=false"><X :size="17"/></button></div><div class="field"><label>Тип</label><div class="kind-selector"><button :class="{active:editingHabit.kind==='trackable'}" @click="editingHabit.kind='trackable'"><CheckCircle2 :size="16"/><span>Отмечаемый ритуал<small>Есть выполнение и серия</small></span></button><button :class="{active:editingHabit.kind==='intention'}" @click="editingHabit.kind='intention'"><Target :size="16"/><span>Намерение<small>Только напоминание</small></span></button></div></div><div class="field"><label>Название</label><input class="input" v-model="editingHabit.title" autofocus/></div><div class="field"><label>Краткая цель</label><input class="input" v-model="editingHabit.subtitle" placeholder="Например, 5 × 500 мл или Не перекусывать"/></div><div class="row"><div v-if="editingHabit.kind==='trackable'" class="field"><label>Количество в день</label><input class="input" type="number" min="1" v-model.number="editingHabit.target"/></div><div v-if="editingHabit.kind==='trackable'" class="field"><label>Таймер, минут (0 — без таймера)</label><input class="input" type="number" min="0" v-model.number="editingHabit.timerMinutes"/></div><div class="field"><label>Цвет</label><input class="input color-input" type="color" v-model="editingHabit.color"/></div></div><div class="field"><label>Дни выполнения</label><div class="weekday-picker"><button v-for="d in [{v:1,t:'Пн'},{v:2,t:'Вт'},{v:3,t:'Ср'},{v:4,t:'Чт'},{v:5,t:'Пт'},{v:6,t:'Сб'},{v:0,t:'Вс'}]" :key="d.v" :class="{active:editingHabit.schedule?.includes(d.v)}" @click="toggleHabitDay(d.v)">{{d.t}}</button></div></div><div class="form-actions"><button v-if="editingHabit.id" class="ghost-btn danger-btn" style="margin-right:auto" @click="archiveHabit"><Archive :size="15"/> Архив</button><button class="ghost-btn" @click="habitOpen=false">Отмена</button><button class="primary-btn" @click="saveHabit">Сохранить</button></div></div></div></Transition>
 
     <Transition name="fade"><div v-if="workoutEditOpen" class="modal-backdrop" @click.self="workoutEditOpen=false"><div class="modal"><div class="modal-head"><div class="modal-title">Редактор программы</div><button class="close" @click="workoutEditOpen=false"><X :size="17"/></button></div><div class="field"><label>Название</label><input class="input" v-model="editingWorkout.title"/></div><div class="field"><label>Упражнения</label><div v-for="(ex,i) in editingWorkout.exercises" :key="ex.id" class="exercise-editor"><GripVertical :size="14"/><input class="input" v-model="ex.title"/><input class="input small" type="number" v-model.number="ex.sets" title="Подходы"/><input class="input small" v-model="ex.reps" title="Повторения"/><button class="close" @click="editingWorkout.exercises.splice(i,1)"><X :size="13"/></button></div><button class="quick-add" @click="addExercise"><Plus :size="14"/> Добавить упражнение</button></div><div class="form-actions"><button class="ghost-btn" @click="workoutEditOpen=false">Отмена</button><button class="primary-btn" @click="saveWorkout">Сохранить программу</button></div></div></div></Transition>
+
+    <Transition name="fade"><div v-if="focusPickerOpen" class="modal-backdrop" @click.self="focusPickerOpen=false"><div class="modal focus-picker"><div class="modal-head"><div><div class="eyebrow">Порядок можно менять в любой момент</div><div class="modal-title">На чём сфокусироваться сейчас?</div></div><button class="close" @click="focusPickerOpen=false"><X :size="17"/></button></div><button class="smart-focus-option" @click="useSmartFocus"><Sparkles :size="17"/><span><strong>Выбирать автоматически</strong><small>Учитывать просрочку, время, приоритет и зависимости</small></span></button><div class="focus-option-label">Незавершённые действия до {{format(parseISO(selectedDate),'d MMMM',{locale:ru})}}</div><div class="focus-options"><button v-for="task in focusCandidates" :key="task.id" :class="{selected:activeTask?.id===task.id}" @click="selectDayFocus(task)"><span class="focus-option-date" :class="{overdue:task.date<selectedDate}">{{task.date===selectedDate?(task.startTime||'Сегодня'):format(parseISO(task.date),'d MMM',{locale:ru})}}</span><span><strong>{{task.title}}</strong><small>{{task.date<selectedDate?'Не завершено ранее':stageLabel(task.stage)}} · {{task.duration||0}} мин</small></span><Check v-if="activeTask?.id===task.id" :size="16"/></button><div v-if="!focusCandidates.length" class="empty">Все действия завершены</div></div></div></div></Transition>
 
     <Transition name="fade"><div v-if="focusOpen" class="focus-overlay"><button class="focus-close" aria-label="Закрыть режим сейчас" @click="focusOpen=false;clearInterval(focusInterval)"><Minimize2 :size="20"/></button><div class="focus-content"><div class="eyebrow">Сейчас имеет значение только это</div><h1>{{activeTask?.title}}</h1><p v-if="activeTask?.notes">{{activeTask.notes}}</p><div v-if="activeTask?.subtasks?.length" class="focus-checklist"><button v-for="sub in activeTask.subtasks" :key="sub.id" @click="toggleSubtask(activeTask,sub)"><span class="check" :class="{done:sub.done}"><Check v-if="sub.done" :size="13"/></span>{{sub.title}}</button></div><div class="focus-timer">{{timerText(focusSeconds)}}</div><div class="focus-actions"><button class="icon-btn big" @click="resetFocus"><RotateCcw :size="20"/></button><button class="primary-btn big" @click="toggleFocusTimer"><component :is="focusRunning?Pause:Play" :size="21"/>{{focusRunning?'Пауза':'Продолжить'}}</button><button class="primary-btn big success" @click="toggleTask(activeTask);focusOpen=false;clearInterval(focusInterval)"><Check :size="21"/>Готово</button></div><div class="section-meta">Следующий шаг появится автоматически после завершения</div></div></div></Transition>
 

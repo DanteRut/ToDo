@@ -34,7 +34,7 @@ export default defineConfig({
           { name: 'План на сегодня', short_name: 'Сегодня', url: './?view=today', icons: [{ src: 'icon-192.png', sizes: '192x192' }] }
         ]
       },
-      workbox: { globPatterns: ['**/*.{js,css,html,svg,png}'] }
+      workbox: { globPatterns: ['**/*.{js,css,html,svg,png,mp3,wav}'] }
     })
   ]
 })
