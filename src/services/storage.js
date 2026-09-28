@@ -87,7 +87,11 @@ export const store = {
     await reload()
     return next
   },
-  async add(record) { return this.save({ id: uid(), ...record }) },
+  async add(record) {
+    // Form models intentionally use id: null for unsaved entities. Generate the
+    // key after spreading so a null placeholder can never overwrite the UUID.
+    return this.save({ ...record, id: record.id || uid() })
+  },
   async remove(id) {
     const record = await db.records.get(id)
     if (record) await this.save({ ...record, deleted: 1 })

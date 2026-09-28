@@ -28,6 +28,7 @@ describe('storage', () => {
 
   it('persists a homework record and exposes it through the reactive collection', async () => {
     const saved = await store.add({
+      id: null, // New Vue forms use a null placeholder until persistence.
       type: 'homework',
       lessonId: 'monday-mobile',
       subject: 'Разработка мобильных приложений',
