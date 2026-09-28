@@ -185,7 +185,14 @@ function dragStart(task){dragTaskId.value=task.id}
 async function dropOnChain(chainId){const task=store.tasks.value.find(t=>t.id===dragTaskId.value);if(!task)return;const siblings=store.tasks.value.filter(t=>t.chainId===chainId);await store.save({...task,chainId,order:siblings.length+1,date:selectedDate.value});dragTaskId.value=null;syncSoon()}
 async function dropOnTask(target){const source=store.tasks.value.find(t=>t.id===dragTaskId.value);if(!source||source.id===target.id)return;const siblings=store.tasks.value.filter(t=>t.chainId===target.chainId&&t.id!==source.id).sort((a,b)=>(a.order||0)-(b.order||0));const at=siblings.findIndex(t=>t.id===target.id);siblings.splice(at,0,source);for(let i=0;i<siblings.length;i++)await store.save({...siblings[i],chainId:target.chainId,order:i+1,date:target.date});dragTaskId.value=null;syncSoon()}
 async function moveOverdue(task,days=0){await store.save({...task,date:days?format(addDays(new Date(),days),'yyyy-MM-dd'):todayKey.value});syncSoon()}
-async function moveAllOverdue(){for(const task of overdueTasks.value)await moveOverdue(task);flash(`${overdueTasks.value.length} действий перенесено на сегодня`)}
+async function moveAllOverdue(){
+  const tasks=[...overdueTasks.value]
+  const count=tasks.length
+  if(!count){flash('Просроченных действий уже нет');return}
+  for(const task of tasks)await store.save({...task,date:todayKey.value})
+  flash(`${count} ${pluralize(count,['действие перенесено','действия перенесены','действий перенесено'])} на сегодня`)
+  syncSoon()
+}
 function startFocus(){focusOpen.value=true;focusRunning.value=true;clearInterval(focusInterval);focusInterval=setInterval(()=>{if(focusSeconds.value>0)focusSeconds.value--;else{focusRunning.value=false;clearInterval(focusInterval);navigator.vibrate?.([200,100,200]);flash('Фокус-блок завершён')}},1000)}
 function toggleFocusTimer(){if(focusRunning.value){clearInterval(focusInterval);focusRunning.value=false}else startFocus()}
 function resetFocus(){clearInterval(focusInterval);focusRunning.value=false;focusSeconds.value=Math.max(5,(activeTask.value?.duration||25))*60}
