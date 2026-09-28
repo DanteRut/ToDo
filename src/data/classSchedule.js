@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, format, getDay, parseISO, startOfWeek } from 'date-fns'
+import { addDays as addCalendarDays, differenceInCalendarDays, format, getDay, parseISO, startOfWeek } from 'date-fns'
 
 export const SEMESTER = {
   start: '2026-09-01',
@@ -56,6 +56,24 @@ export function classesForDate(dateInput) {
   const day = getDay(date)
   const week = academicWeek(date)
   return CLASS_SCHEDULE.filter(item => item.day === day && item.weeks.includes(week)).sort((a, b) => a.pair - b.pair)
+}
+
+export function nextStudyDate(fromDate, maxDays = 7) {
+  const start = typeof fromDate === 'string' ? parseISO(fromDate) : fromDate
+  for (let i = 1; i <= maxDays; i++) {
+    const date = addCalendarDays(start, i)
+    if (classesForDate(date).length) return format(date, 'yyyy-MM-dd')
+  }
+  return format(addCalendarDays(start, 1), 'yyyy-MM-dd')
+}
+
+export function nextClassOccurrence(lessonId, fromDate, maxDays = 21) {
+  const start = typeof fromDate === 'string' ? parseISO(fromDate) : fromDate
+  for (let i = 1; i <= maxDays; i++) {
+    const date = addCalendarDays(start, i)
+    if (classesForDate(date).some(item => item.id === lessonId)) return format(date, 'yyyy-MM-dd')
+  }
+  return format(addCalendarDays(start, 7), 'yyyy-MM-dd')
 }
 
 export const DAY_NAMES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница']

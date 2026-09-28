@@ -69,6 +69,7 @@ export const store = {
   chains: computed(() => state.records.filter(r => r.type === 'chain')),
   habits: computed(() => state.records.filter(r => r.type === 'habit').sort((a,b) => a.order-b.order)),
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
+  homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
   async init() {
     if (await db.records.count() === 0) await db.records.bulkPut(seed())
     const habits = await db.records.where('type').equals('habit').toArray()
