@@ -27,10 +27,11 @@ const seed = () => {
     { id: uid(), type: 'task', chainId: chainGym, title: 'Разминка и мобилизация плеч', stage: 'prepare', date: today, startTime: '18:20', duration: 10, priority: 'medium', done: false, order: 2 },
     { id: uid(), type: 'task', chainId: chainGym, title: 'Спина (ширина) + бицепс', stage: 'action', date: today, startTime: '18:30', duration: 75, priority: 'high', done: false, order: 3 },
     { id: uid(), type: 'task', title: 'Разобрать входящие за 15 минут', stage: 'action', date: tomorrow, startTime: '10:00', duration: 15, priority: 'medium', done: false, order: 1 },
-    { id: uid(), type: 'habit', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты', icon: 'activity', color: '#60a5fa', history: {}, target: 1, order: 1 },
-    { id: uid(), type: 'habit', title: 'Коктейль массы', subtitle: '700 ккал', icon: 'cup-soda', color: '#f59e0b', history: {}, target: 1, order: 2 },
-    { id: uid(), type: 'habit', title: 'Вода 2.5 л', subtitle: '5 × 500 мл', icon: 'droplets', color: '#06b6d4', history: {}, target: 5, order: 3 },
-    { id: uid(), type: 'habit', title: 'Пульс под контролем', subtitle: '< 155 уд/мин', icon: 'heart-pulse', color: '#f43f5e', history: {}, target: 1, order: 4 },
+    { id: uid(), type: 'habit', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты', icon: 'activity', color: '#60a5fa', history: {}, timerMinutes: 3, target: 1, order: 1 },
+    { id: uid(), type: 'habit', kind: 'trackable', title: 'Коктейль массы', subtitle: '700 ккал', icon: 'cup-soda', color: '#f59e0b', history: {}, target: 1, order: 2 },
+    { id: uid(), type: 'habit', kind: 'trackable', title: 'Вода 2.5 л', subtitle: '5 × 500 мл', icon: 'droplets', color: '#06b6d4', history: {}, target: 5, order: 3 },
+    { id: uid(), type: 'habit', kind: 'intention', title: 'Пульс под контролем', subtitle: '< 155 уд/мин', icon: 'heart-pulse', color: '#f43f5e', history: {}, target: 1, order: 4 },
+    { id: uid(), type: 'habit', kind: 'intention', title: 'Не перекусывать', subtitle: 'Питание только по плану', icon: 'activity', color: '#a78bfa', history: {}, target: 1, order: 5 },
     { id: workoutId, type: 'workout', title: 'Спина + бицепс', day: 1, color: '#8b5cf6', exercises: [
       { id: uid(), title: 'Подтягивания с весом', sets: 4, reps: '6–8', rest: 180 },
       { id: uid(), title: 'Тяга верхнего блока', sets: 3, reps: '10–12', rest: 150 },
@@ -70,6 +71,9 @@ export const store = {
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   async init() {
     if (await db.records.count() === 0) await db.records.bulkPut(seed())
+    const habits = await db.records.where('type').equals('habit').toArray()
+    const migrated = habits.filter(h => !h.kind || (h.title.includes('Планка') && !h.timerMinutes)).map(h => ({ ...h, kind: h.kind || (h.title.toLowerCase().includes('пульс') ? 'intention' : 'trackable'), timerMinutes: h.timerMinutes || (h.title.includes('Планка') ? 3 : 0), updatedAt: now(), dirty: 1 }))
+    if (migrated.length) await db.records.bulkPut(migrated)
     await reload()
   },
   async save(record, markDirty = true) {
