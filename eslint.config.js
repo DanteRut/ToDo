@@ -7,7 +7,7 @@ export default [
   ...pluginVue.configs['flat/essential'],
   {
     files: ['src/**/*.{js,vue}'],
-    languageOptions: { globals: { window: 'readonly', location: 'readonly', document: 'readonly', navigator: 'readonly', localStorage: 'readonly', indexedDB: 'readonly', crypto: 'readonly', Blob: 'readonly', CustomEvent: 'readonly', FileReader: 'readonly', URL: 'readonly', confirm: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' } },
+    languageOptions: { globals: { window: 'readonly', location: 'readonly', console: 'readonly', document: 'readonly', navigator: 'readonly', localStorage: 'readonly', indexedDB: 'readonly', crypto: 'readonly', Blob: 'readonly', CustomEvent: 'readonly', FileReader: 'readonly', URL: 'readonly', confirm: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', setInterval: 'readonly', clearInterval: 'readonly' } },
     rules: {
       'no-unused-vars': 'off',
       'vue/multi-word-component-names': 'off',

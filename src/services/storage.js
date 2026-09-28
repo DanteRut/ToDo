@@ -8,6 +8,7 @@ db.version(1).stores({ records: 'id, type, date, updatedAt, dirty, deleted' })
 const isoDay = (date = new Date()) => format(date, 'yyyy-MM-dd')
 export const uid = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
+export const toPlainRecord = record => JSON.parse(JSON.stringify(record))
 
 const seed = () => {
   const today = isoDay()
@@ -72,7 +73,10 @@ export const store = {
     await reload()
   },
   async save(record, markDirty = true) {
-    const next = { ...record, updatedAt: now(), dirty: markDirty ? 1 : 0, deleted: record.deleted || 0 }
+    // Vue wraps nested form values in Proxy objects. IndexedDB cannot clone Proxies,
+    // so every record is converted to a plain JSON document before persistence.
+    const plain = toPlainRecord(record)
+    const next = { ...plain, updatedAt: now(), dirty: markDirty ? 1 : 0, deleted: plain.deleted || 0 }
     await db.records.put(next)
     if (markDirty) localStorage.setItem('momentum.localTouched', '1')
     await reload()
