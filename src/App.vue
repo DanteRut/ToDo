@@ -10,13 +10,15 @@ import {
   X, Zap, Coffee, Flame, Search, Cloud, CloudOff, RefreshCw, Download, Upload, Trash2,
   Play, Pause, RotateCcw, Clock3, Link2, CircleDot, LogOut, ShieldCheck, WifiOff, Pencil,
   CheckCircle2, Target, Timer, ArrowRight, Menu, SlidersHorizontal, GripVertical, Copy,
-  GitBranch, Repeat2, Archive, TrendingUp, BarChart3, Save, Maximize2, Minimize2, PlusCircle
+  GitBranch, Repeat2, Archive, TrendingUp, BarChart3, Save, Maximize2, Minimize2, PlusCircle,
+  GraduationCap, MapPin, BookOpen
 } from 'lucide-vue-next'
 import { isBlocked, smartNext, nextRecurringDate, computeChainTimes, pluralize } from './utils/planner'
+import { CLASS_SCHEDULE, DAY_NAMES, SEMESTER, academicWeek, classesForDate, isInSemester } from './data/classSchedule'
 
 const nav = [
   { id:'today', label:'Сегодня', icon:Sun }, { id:'tasks', label:'План', icon:ListTodo },
-  { id:'calendar', label:'Календарь', icon:CalendarDays }, { id:'workouts', label:'Тренировки', icon:Dumbbell },
+  { id:'calendar', label:'Календарь', icon:CalendarDays }, { id:'study', label:'Пары', icon:GraduationCap }, { id:'workouts', label:'Тренировки', icon:Dumbbell },
   { id:'habits', label:'Привычки', icon:Sparkles }, { id:'settings', label:'Настройки', icon:Settings }
 ]
 const mobileNav = nav
@@ -41,6 +43,10 @@ let timerInterval
 const iconMap = { briefcase:BriefcaseBusiness, dumbbell:Dumbbell, activity:Activity, 'cup-soda':CupSoda, droplets:Droplets, 'heart-pulse':HeartPulse }
 const todayKey = computed(() => store.today())
 const dayTasks = computed(() => store.tasks.value.filter(t => t.date === selectedDate.value).sort(sortTask))
+const selectedClasses = computed(() => classesForDate(selectedDate.value))
+const selectedAcademicWeek = computed(() => academicWeek(selectedDate.value))
+const studyWeekStart = computed(() => startOfWeek(parseISO(selectedDate.value), {weekStartsOn:1}))
+const studyWeekDays = computed(() => Array.from({length:5},(_,i)=>addDays(studyWeekStart.value,i)))
 const dayChains = computed(() => store.chains.value.filter(c => c.date === selectedDate.value).sort((a,b)=>(a.startTime||'').localeCompare(b.startTime||'')))
 const looseTasks = computed(() => dayTasks.value.filter(t => !t.chainId))
 const completedCount = computed(() => dayTasks.value.filter(t => t.done).length)
@@ -86,7 +92,7 @@ const monthDays = computed(() => {
   const gridStart = startOfWeek(monthStart, {weekStartsOn:1})
   return Array.from({length:42}, (_,i)=>addDays(gridStart,i))
 })
-const timelineTasks = computed(() => dayTasks.value.filter(t=>t.startTime).sort(sortTask))
+const timelineTasks = computed(() => [...dayTasks.value.filter(t=>t.startTime),...selectedClasses.value.map(lesson=>({id:`class-${lesson.id}`,title:lesson.subject,startTime:lesson.start,duration:80,isClass:true,lesson}))].sort(sortTask))
 const pageTitle = computed(() => nav.find(n=>n.id===view.value)?.label || 'Сегодня')
 
 function sortTask(a,b){ return ((a.startTime||'99:99')+(a.order||0)).localeCompare((b.startTime||'99:99')+(b.order||0)) }
@@ -114,7 +120,7 @@ async function toggleHabit(habit){ const history={...(habit.history||{})}; const
 function habitValue(h){return h.history?.[todayKey.value]||0}
 function habitStreak(h){ let streak=0; for(let i=0;i<365;i++){const d=format(addDays(new Date(),-i),'yyyy-MM-dd'); if((h.history?.[d]||0)>=h.target)streak++;else if(i>0)break;else if(i===0)continue} return streak }
 function stageLabel(s){return ({prepare:'Подготовка',action:'Действие',finish:'Завершение'}[s]||'Действие')}
-function dayRecords(date){const key=format(date,'yyyy-MM-dd');return [...store.tasks.value.filter(t=>t.date===key),...store.chains.value.filter(c=>c.date===key)]}
+function dayRecords(date){const key=format(date,'yyyy-MM-dd');return [...store.tasks.value.filter(t=>t.date===key),...store.chains.value.filter(c=>c.date===key),...classesForDate(key).map(item=>({...item,id:`class-${key}-${item.id}`,type:'class',color:'#38bdf8'}))]}
 function changeDay(delta){selectedDate.value=format(addDays(parseISO(selectedDate.value),delta),'yyyy-MM-dd')}
 function selectCalendarDay(date){selectedDate.value=format(date,'yyyy-MM-dd'); view.value='today'}
 function openTask(task=null){
@@ -296,6 +302,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
                 <button v-if="activeTask" class="focus-launch" @click="resetFocus();startFocus()"><Maximize2 :size="15"/> Режим «Сейчас»</button>
               </div>
 
+              <div v-if="selectedClasses.length" class="section-head"><h2>Пары</h2><button class="section-link" @click="view='study'">{{selectedAcademicWeek===1?'I':'II'}} неделя · всё расписание <ArrowRight :size="13"/></button></div><div v-if="selectedClasses.length" class="today-classes"><article v-for="lesson in selectedClasses" :key="lesson.id" class="class-mini card"><div class="class-time"><strong>{{lesson.start}}</strong><span>{{lesson.end}}</span></div><div><strong>{{lesson.subject}}</strong><span>{{lesson.kind}} · ауд. {{lesson.room}}</span></div><span class="pair-badge">{{lesson.pair}} пара</span></article></div>
               <div class="section-head"><h2>Цепочки действий</h2><span class="section-meta">{{dayChains.length}} потоков · {{completedCount}}/{{dayTasks.length}} действий</span></div>
               <article v-for="chain in dayChains" :key="chain.id" class="card chain" :style="{'--chain':chain.color}" @dragover.prevent @drop="dropOnChain(chain.id)">
                 <div class="chain-head"><div class="chain-icon"><component :is="iconMap[chain.icon]||Activity" :size="18"/></div><div><div class="chain-title">{{chain.title}}</div><div class="chain-sub">Начало {{chain.startTime}} · {{chainProgress(chain.id)}} готово</div></div><button v-if="chain.workoutId" class="mini-btn" @click="openWorkout(store.workouts.value.find(w=>w.id===chain.workoutId))"><Play :size="12"/> Начать</button><button class="chain-more" :aria-label="`Настроить ${chain.title}`" @click="openChain(chain)"><MoreHorizontal :size="18"/></button></div>
@@ -327,8 +334,15 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
 
         <template v-else-if="view==='calendar'">
           <div class="section-head" style="margin-top:0"><div><strong>{{calendarMode==='day'?format(parseISO(selectedDate),'d MMMM, EEEE',{locale:ru}):format(calendarMonth,'LLLL yyyy',{locale:ru})}}</strong><div class="section-meta">Планируй визуально и замечай перегрузку</div></div><div class="row" style="flex:0"><div class="segmented"><button v-for="m in [{id:'month',t:'Месяц'},{id:'week',t:'Неделя'},{id:'day',t:'День'}]" :key="m.id" :class="{active:calendarMode===m.id}" @click="calendarMode=m.id">{{m.t}}</button></div><button class="icon-btn" @click="calendarMode==='month'?calendarMonth=subMonths(calendarMonth,1):changeDay(-7)"><ChevronLeft :size="17"/></button><button class="icon-btn" @click="calendarMode==='month'?calendarMonth=addMonths(calendarMonth,1):changeDay(7)"><ChevronRight :size="17"/></button></div></div>
-          <div v-if="calendarMode!=='day'" class="calendar-grid" :class="{'week-grid':calendarMode==='week'}"><div v-for="w in ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']" :key="w" class="weekday">{{w}}</div><button v-for="d in monthDays" :key="d.toISOString()" class="day" :class="{muted:calendarMode==='month'&&!isSameMonth(d,calendarMonth),today:isToday(d),selected:format(d,'yyyy-MM-dd')===selectedDate}" @click="selectedDate=format(d,'yyyy-MM-dd');calendarMode='day'"><span class="day-number">{{format(d,'d')}}</span><div class="dots"><span v-for="r in dayRecords(d).slice(0,8)" :key="r.id" class="dot" :style="{background:r.type==='chain'?(r.color||'#8b5cf6'):r.done?'#34d399':r.priority==='high'?'#fb7185':'#52525b'}"></span></div><div v-if="calendarMode==='week'" class="week-items"><div v-for="t in store.tasks.value.filter(t=>t.date===format(d,'yyyy-MM-dd')).slice(0,5)" :key="t.id">{{t.startTime}} {{t.title}}</div></div></button></div>
-          <div v-else class="day-timeline card"><div v-for="hour in Array.from({length:16},(_,i)=>i+7)" :key="hour" class="time-slot"><span>{{String(hour).padStart(2,'0')}}:00</span><div class="slot-line"></div><button v-for="task in timelineTasks.filter(t=>+t.startTime.split(':')[0]===hour)" :key="task.id" class="timeline-event" :style="{left:(+task.startTime.split(':')[1]/60*60)+'px',width:Math.max(90,(task.duration||30)*2)+'px'}" @click="openTask(task)">{{task.startTime}} · {{task.title}}</button></div><button class="quick-add" style="margin:12px;width:calc(100% - 24px)" @click="openQuick"><Plus :size="14"/> Добавить цепочку</button></div>
+          <div v-if="calendarMode!=='day'" class="calendar-grid" :class="{'week-grid':calendarMode==='week'}"><div v-for="w in ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']" :key="w" class="weekday">{{w}}</div><button v-for="d in monthDays" :key="d.toISOString()" class="day" :class="{muted:calendarMode==='month'&&!isSameMonth(d,calendarMonth),today:isToday(d),selected:format(d,'yyyy-MM-dd')===selectedDate}" @click="selectedDate=format(d,'yyyy-MM-dd');calendarMode='day'"><span class="day-number">{{format(d,'d')}}</span><div class="dots"><span v-for="r in dayRecords(d).slice(0,8)" :key="r.id" class="dot" :style="{background:r.type==='class'?'#38bdf8':r.type==='chain'?(r.color||'#8b5cf6'):r.done?'#34d399':r.priority==='high'?'#fb7185':'#52525b'}"></span></div><div v-if="calendarMode==='week'" class="week-items"><div v-for="lesson in classesForDate(d)" :key="lesson.id" class="week-class">{{lesson.start}} {{lesson.subject}}</div><div v-for="t in store.tasks.value.filter(t=>t.date===format(d,'yyyy-MM-dd')).slice(0,5)" :key="t.id">{{t.startTime}} {{t.title}}</div></div></button></div>
+          <div v-else class="day-timeline card"><div v-for="hour in Array.from({length:16},(_,i)=>i+7)" :key="hour" class="time-slot"><span>{{String(hour).padStart(2,'0')}}:00</span><div class="slot-line"></div><button v-for="task in timelineTasks.filter(t=>+t.startTime.split(':')[0]===hour)" :key="task.id" class="timeline-event" :class="{'class-event':task.isClass}" :style="{left:(+task.startTime.split(':')[1]/60*60)+'px',width:Math.max(90,(task.duration||30)*2)+'px'}" @click="!task.isClass&&openTask(task)">{{task.startTime}} · {{task.title}}</button></div><button class="quick-add" style="margin:12px;width:calc(100% - 24px)" @click="openQuick"><Plus :size="14"/> Добавить цепочку</button></div>
+        </template>
+
+        <template v-else-if="view==='study'">
+          <div class="study-hero card"><div><div class="eyebrow">УВП-412 · 1 семестр 2026–2027</div><h2>{{selectedAcademicWeek===1?'Первая':'Вторая'}} неделя</h2><p>{{format(studyWeekStart,'d MMMM',{locale:ru})}} — {{format(addDays(studyWeekStart,6),'d MMMM yyyy',{locale:ru})}}</p></div><div class="study-nav"><button class="icon-btn" aria-label="Предыдущая учебная неделя" @click="changeDay(-7)"><ChevronLeft :size="17"/></button><button class="ghost-btn" @click="selectedDate=todayKey">Текущая</button><button class="icon-btn" aria-label="Следующая учебная неделя" @click="changeDay(7)"><ChevronRight :size="17"/></button></div></div>
+          <div v-if="!isInSemester(selectedDate)" class="card empty">Эта дата находится вне периода семестра: {{format(parseISO(SEMESTER.start),'d MMMM',{locale:ru})}} — {{format(parseISO(SEMESTER.end),'d MMMM yyyy',{locale:ru})}}</div>
+          <div v-else class="study-grid"><section v-for="(date,index) in studyWeekDays" :key="date.toISOString()" class="study-day" :class="{today:isToday(date)}"><header><div><strong>{{DAY_NAMES[index]}}</strong><span>{{format(date,'d MMMM',{locale:ru})}}</span></div><span v-if="isToday(date)" class="tag">Сегодня</span></header><div v-if="classesForDate(date).length" class="study-lessons"><article v-for="lesson in classesForDate(date)" :key="lesson.id" class="study-lesson"><div class="lesson-time"><span>{{lesson.pair}} пара</span><strong>{{lesson.start}}–{{lesson.end}}</strong></div><div class="lesson-main"><strong>{{lesson.subject}}</strong><span><BookOpen :size="12"/> {{lesson.kind}}</span><span v-if="lesson.teacher">{{lesson.teacher}}</span></div><div class="lesson-room"><MapPin :size="13"/><strong>{{lesson.room}}</strong></div></article></div><div v-else class="study-free">Пар нет</div></section></div>
+          <div class="schedule-note card"><GraduationCap :size="18"/><div><strong>Чередование рассчитано автоматически</strong><span>28 сентября 2026 — понедельник первой недели. Расписание действует с 1 сентября 2026 по 4 января 2027.</span></div></div>
         </template>
 
         <template v-else-if="view==='workouts'">
