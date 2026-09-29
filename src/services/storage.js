@@ -66,14 +66,14 @@ async function reload() {
 export const store = {
   state,
   today: isoDay,
-  tasks: computed(() => state.records.filter(r => r.type === 'task')),
-  chains: computed(() => state.records.filter(r => r.type === 'chain')),
+  tasks: computed(() => state.records.filter(r => r.type === 'task' && r.status !== 'archived')),
+  chains: computed(() => state.records.filter(r => r.type === 'chain' && r.status !== 'archived')),
   chainTemplates: computed(() => state.records.filter(r => r.type === 'chainTemplate').sort((a,b) => (a.order || 0) - (b.order || 0))),
   habits: computed(() => state.records.filter(r => r.type === 'habit').sort((a,b) => a.order-b.order)),
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
   inbox: computed(() => state.records.filter(r => r.type === 'inbox').sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''))),
-  projects: computed(() => state.records.filter(r => r.type === 'project').sort((a,b) => (a.order || 0) - (b.order || 0))),
+  projects: computed(() => state.records.filter(r => r.type === 'project' && r.status !== 'archived').sort((a,b) => (a.order || 0) - (b.order || 0))),
   measurements: computed(() => state.records.filter(r => r.type === 'measurement').sort((a,b) => (b.date || '').localeCompare(a.date || ''))),
   timeEntries: computed(() => state.records.filter(r => r.type === 'timeEntry').sort((a,b) => (b.startedAt || '').localeCompare(a.startedAt || ''))),
   async init() {
