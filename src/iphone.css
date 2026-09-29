@@ -29,3 +29,29 @@
 
 @media (max-height:430px) and (orientation:landscape){
   .page{padding-top:calc(8px + env(safe-area-inset-top));padding-right:calc(12px + env(safe-area-inset-right));padding-bottom:74px;padding-left:calc(12px + env(safe-area-inset-left))}.topbar{flex-direction:row;align-items:center}.page-title{font-size:20px}.mobile-nav{padding-right:calc(8px + env(safe-area-inset-right));padding-bottom:5px;padding-left:calc(8px + env(safe-area-inset-left))}.mobile-nav button{min-height:42px}.fab{bottom:62px}.modal,.ritual-modal,.chain-template-modal{max-height:calc(100dvh - 12px);border-radius:16px}.focus-overlay{padding-top:55px}.focus-timer{font-size:38px;margin:14px}.focus-content h1{font-size:24px}}
+
+/* Readable type and collision-resistant layout on a 393 px viewport. */
+@media (max-width:430px){
+  button{touch-action:manipulation}
+  .eyebrow{font-size:11px}.section-meta{font-size:12px}.page-title{font-size:26px}
+  .task-title{font-size:14px;line-height:1.3;white-space:normal;overflow-wrap:anywhere}.task-stage{font-size:11px;letter-spacing:.04em}.task-time,.duration{font-size:11px}.tag{font-size:10px}
+  .chain-title{font-size:14px}.chain-sub{font-size:11px}.plan-chain-summary>div:nth-child(2) strong{font-size:13px}.plan-chain-summary>div:nth-child(2) small,.plan-chain-summary>span{font-size:10px;line-height:1.35}
+  .day-command strong,.day-load strong{font-size:12px}.day-command small,.day-load small{font-size:10px;line-height:1.35}.day-command>button span{min-width:0}
+  .today-chain-overview>div strong,.today-chain-overview>button strong{font-size:12px}.today-chain-overview>div span,.today-chain-overview>button small{font-size:10px;line-height:1.3}
+  .homework-plan-head span,.homework-row>div span,.homework-prompt small{font-size:11px;line-height:1.35}.homework-row>div strong,.homework-prompt strong{font-size:13px}.homework-plan-empty,.homework-backlog-label{font-size:11px}.plan-homework-btn,.homework-btn{font-size:10px;min-height:32px}.homework-due{font-size:11px}
+  .class-time span,.class-mini>div:nth-child(2) span,.lesson-time span,.lesson-main span,.study-day>header div span{font-size:11px;line-height:1.35}.class-mini>div:nth-child(2)>strong,.lesson-main>strong{font-size:13px}.pair-badge{font-size:10px}
+  .habit-title{font-size:13px}.habit-sub,.intention-row small{font-size:11px}.habit-timer-btn,.intention-badge{font-size:10px}
+  .project-card>span,.project-card>small,.deadline-strip button,.deadline-risk>button,.someday-box>button,.revision-row{font-size:11px;line-height:1.35}.project-card>strong{font-size:13px}.deadline-strip>strong,.deadline-risk>strong{font-size:12px}
+  .chain-template-card strong,.chain-builder-tasks strong{font-size:12px}.chain-template-card small,.chain-builder-tasks small,.chain-builder-tasks>label,.chain-builder-tasks>p,.template-step-row>span,.template-use-box>strong{font-size:10px;line-height:1.35}
+  .filter-chip,.segmented button,.compact,.mini-btn,.section-link,.next-lesson-btn{font-size:11px}.filter-chip{padding:8px 12px}.mini-chain-select,.chain-move-menu{font-size:11px}
+  .smart-window>span,.smart-window button,.capacity-strip span,.overload-advice span,.overload-advice>button,.recovery-banner>span{font-size:11px;line-height:1.4}.overload-advice strong{font-size:12px}
+  .review-summary span,.reason-grid button,.backup-list button,.form-error{font-size:11px}.ritual-step h4{font-size:14px}.ritual-step p{font-size:11px!important}.ritual-choice-list strong{font-size:12px}.ritual-choice-list small{font-size:10px}
+  .setting-card h3{font-size:15px}.setting-card p,.setting-card small{font-size:11px;line-height:1.5}.theme-grid strong{font-size:12px}.theme-grid em,.theme-grid small{font-size:10px}
+  .mobile-nav button{font-size:8px;line-height:1.05;white-space:nowrap;overflow:hidden}.mobile-nav button span{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+  .timeline-event{font-size:10px;line-height:1.25}.time-slot>span{font-size:11px}.timeline-layers{font-size:9px}
+  .set-labels,.history-set-row.labels{font-size:9px}.set-number,.history-set-row,.session-kpis span,.history-exercise-head span,.stat-cards span{font-size:11px}
+  .chain-head{flex-wrap:wrap}.chain-head>div:nth-child(2){flex:1;min-width:150px}.chain-head .mini-btn{margin-left:42px}.chain-head .chain-more{margin-left:auto}
+  .section-head{align-items:flex-start;flex-wrap:wrap}.section-head>.row{width:100%;justify-content:flex-end}.study-lesson{align-items:start}.lesson-main,.lesson-room{min-width:0}.lesson-room span{flex-wrap:wrap}
+  .form-actions>.ghost-btn,.form-actions>.primary-btn{font-size:12px}.inline-action{float:none;display:block;margin-top:5px;font-size:10px}
+  .toast{font-size:12px;line-height:1.35}
+}
