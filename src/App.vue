@@ -24,6 +24,14 @@ const nav = [
   { id:'habits', label:'Привычки', icon:Sparkles }, { id:'settings', label:'Настройки', icon:Settings }
 ]
 const mobileNav = nav
+const themes = [
+  {id:'midnight',name:'Полночь',description:'Фиолетовый акцент',colors:['#090a0d','#8b5cf6','#c4b5fd']},
+  {id:'ocean',name:'Океан',description:'Синий и бирюзовый',colors:['#07131b','#0ea5e9','#67e8f9']},
+  {id:'forest',name:'Лес',description:'Зелёный и мятный',colors:['#08130e','#22c55e','#6ee7b7']},
+  {id:'sunset',name:'Закат',description:'Оранжевый и коралловый',colors:['#170d0a','#f97316','#fda4af']},
+  {id:'graphite',name:'Графит',description:'Спокойный монохром',colors:['#101114','#a1a1aa','#e4e4e7']}
+]
+const currentTheme = ref(localStorage.getItem('momentum.theme')||'midnight')
 const view = ref('today')
 const quickOpen = ref(false), taskOpen = ref(false), workoutOpen = ref(false), cloudOpen = ref(false)
 const chainOpen = ref(false), habitOpen = ref(false), focusOpen = ref(false), focusPickerOpen = ref(false), workoutEditOpen = ref(false), historyOpen = ref(false), homeworkOpen = ref(false)
@@ -154,6 +162,7 @@ function sortTask(a,b){ return ((a.startTime||'99:99')+(a.order||0)).localeCompa
 function flash(message){ toast.value=message; setTimeout(()=>{toast.value='';lastDeleted.value=null},3500) }
 async function undoDelete(){if(!lastDeleted.value)return;await store.save({...lastDeleted.value,deleted:0});lastDeleted.value=null;toast.value='Действие восстановлено';syncSoon()}
 function applyUpdate(){window.__momentumUpdate?.(true)}
+function applyTheme(theme){currentTheme.value=theme;document.documentElement.dataset.theme=theme;localStorage.setItem('momentum.theme',theme)}
 async function captureInbox(){const title=inboxText.value.trim();if(!title)return;await store.add({type:'inbox',title,createdAt:new Date().toISOString()});inboxText.value='';flash('Записано во входящие');syncSoon()}
 async function inboxToToday(item){await store.add({type:'task',title:item.title,date:selectedDate.value,startTime:'',duration:30,priority:'normal',stage:'action',done:false,order:Date.now(),subtasks:[],dependsOn:[]});await store.remove(item.id);flash('Добавлено в план дня');syncSoon()}
 async function removeInbox(item){await store.remove(item.id);syncSoon()}
@@ -388,7 +397,7 @@ function setView(id){view.value=id;if(id==='today')selectedDate.value=store.toda
 watch(selectedWorkout, value=>{if(workoutOpen.value&&value)localStorage.setItem('momentum.workoutDraft',JSON.stringify(value))},{deep:true})
 watch(editingHomework, value=>{if(homeworkOpen.value&&value)localStorage.setItem('momentum.homeworkDraft',JSON.stringify(value))},{deep:true})
 
-onMounted(async()=>{await store.init();await initCloud();await loadBackups();
+onMounted(async()=>{applyTheme(currentTheme.value);await store.init();await initCloud();await loadBackups();
   const focusDraft=JSON.parse(localStorage.getItem('momentum.activeFocus')||'null');if(focusDraft){const elapsed=focusDraft.running?Math.floor((Date.now()-focusDraft.savedAt)/1000):0;focusSeconds.value=Math.max(0,focusDraft.seconds-elapsed);focusStartedAt.value=focusDraft.startedAt;const record=store.state.records.find(r=>r.type==='dayFocus'&&r.date===selectedDate.value);if(!record)await store.add({type:'dayFocus',date:selectedDate.value,taskId:focusDraft.taskId})}
   const workoutDraft=JSON.parse(localStorage.getItem('momentum.workoutDraft')||'null');if(workoutDraft){selectedWorkout.value=workoutDraft;workoutOpen.value=true;flash('Незавершённая тренировка восстановлена')}
   const homeworkDraft=JSON.parse(localStorage.getItem('momentum.homeworkDraft')||'null');if(homeworkDraft){editingHomework.value=homeworkDraft;homeworkOpen.value=true}
@@ -502,6 +511,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
         </template>
 
         <template v-else-if="view==='settings'">
+          <div class="theme-panel card"><div class="theme-panel-head"><div><h3>Оформление</h3><p>Тема применяется сразу и сохраняется на этом устройстве.</p></div><span>{{themes.find(theme=>theme.id===currentTheme)?.name}}</span></div><div class="theme-grid"><button v-for="theme in themes" :key="theme.id" :class="{active:currentTheme===theme.id}" @click="applyTheme(theme.id)"><div class="theme-preview" :style="{background:theme.colors[0]}"><i v-for="color in theme.colors.slice(1)" :key="color" :style="{background:color}"></i></div><span><strong>{{theme.name}}</strong><small>{{theme.description}}</small></span><Check v-if="currentTheme===theme.id" :size="15"/></button></div></div>
           <div class="settings-grid">
             <div class="card setting-card"><Cloud :size="21" color="#a78bfa"/><h3 style="margin-top:12px">Синхронизация устройств</h3><p>{{cloud.connected?`Выполнен вход: ${cloud.user?.email}. Последняя синхронизация ${formatSync()}.`:'Подключите бесплатный Supabase, чтобы один план был доступен на iPhone и компьютере.'}}</p><button class="primary-btn" @click="cloudOpen=true">{{cloud.connected?'Управление облаком':'Подключить облако'}}</button></div>
             <div class="card setting-card"><Bell :size="21" color="#f59e0b"/><h3 style="margin-top:12px">Уведомления</h3><p>Напоминания о парах, ДЗ и таймерах. Для iPhone приложение должно быть добавлено на экран «Домой».</p><button class="ghost-btn" @click="requestNotifications">{{notificationPermission==='granted'?'Уведомления включены':'Разрешить уведомления'}}</button></div>

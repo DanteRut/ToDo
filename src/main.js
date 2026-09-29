@@ -4,6 +4,9 @@ import { registerSW } from 'virtual:pwa-register'
 import './styles.css'
 import './enhancements.css'
 import './productivity.css'
+import './themes.css'
+
+document.documentElement.dataset.theme = localStorage.getItem('momentum.theme') || 'midnight'
 
 const updateSW = registerSW({
   onNeedRefresh() { window.dispatchEvent(new CustomEvent('momentum:update-ready')) },
