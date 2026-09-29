@@ -4,6 +4,7 @@ import { format, addDays } from 'date-fns'
 
 export const db = new Dexie('momentum-personal-os')
 db.version(1).stores({ records: 'id, type, date, updatedAt, dirty, deleted' })
+db.version(2).stores({ records: 'id, type, date, updatedAt, dirty, deleted', backups: '++id, createdAt' })
 
 const isoDay = (date = new Date()) => format(date, 'yyyy-MM-dd')
 export const uid = () => crypto.randomUUID()
@@ -70,12 +71,23 @@ export const store = {
   habits: computed(() => state.records.filter(r => r.type === 'habit').sort((a,b) => a.order-b.order)),
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
+  inbox: computed(() => state.records.filter(r => r.type === 'inbox').sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''))),
+  projects: computed(() => state.records.filter(r => r.type === 'project').sort((a,b) => (a.order || 0) - (b.order || 0))),
+  measurements: computed(() => state.records.filter(r => r.type === 'measurement').sort((a,b) => (b.date || '').localeCompare(a.date || ''))),
+  timeEntries: computed(() => state.records.filter(r => r.type === 'timeEntry').sort((a,b) => (b.startedAt || '').localeCompare(a.startedAt || ''))),
   async init() {
     if (await db.records.count() === 0) await db.records.bulkPut(seed())
     const habits = await db.records.where('type').equals('habit').toArray()
     const migrated = habits.filter(h => !h.kind || (h.title.includes('Планка') && !h.timerMinutes)).map(h => ({ ...h, kind: h.kind || (h.title.toLowerCase().includes('пульс') ? 'intention' : 'trackable'), timerMinutes: h.timerMinutes || (h.title.includes('Планка') ? 3 : 0), updatedAt: now(), dirty: 1 }))
     if (migrated.length) await db.records.bulkPut(migrated)
     await reload()
+    const backupDay = isoDay()
+    try {
+      if (localStorage.getItem('momentum.lastAutoBackup') !== backupDay) {
+        await this.createBackup('Автоматическая копия')
+        localStorage.setItem('momentum.lastAutoBackup', backupDay)
+      }
+    } catch { /* Storage can be restricted in private browsing; app data still works. */ }
   },
   async save(record, markDirty = true) {
     // Vue wraps nested form values in Proxy objects. IndexedDB cannot clone Proxies,
@@ -98,6 +110,20 @@ export const store = {
   },
   async replaceAll(records) {
     await db.transaction('rw', db.records, async () => { await db.records.clear(); await db.records.bulkPut(records) })
+    await reload()
+  },
+  async createBackup(label = 'Резервная копия') {
+    const records = await db.records.toArray()
+    const id = await db.backups.add({ createdAt: now(), label, records })
+    const all = await db.backups.orderBy('createdAt').reverse().toArray()
+    if (all.length > 7) await db.backups.bulkDelete(all.slice(7).map(item => item.id))
+    return id
+  },
+  async listBackups() { return db.backups.orderBy('createdAt').reverse().toArray() },
+  async restoreBackup(id) {
+    const backup = await db.backups.get(id)
+    if (!backup) throw new Error('Резервная копия не найдена')
+    await db.transaction('rw', db.records, async () => { await db.records.clear(); await db.records.bulkPut(backup.records.map(record => ({ ...record, dirty: 1 }))) })
     await reload()
   },
   async allWithDeleted() { return db.records.toArray() },

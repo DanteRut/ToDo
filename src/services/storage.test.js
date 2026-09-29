@@ -11,6 +11,7 @@ describe('storage', () => {
 
   beforeEach(async () => {
     await db.records.clear()
+    await db.backups.clear()
     await store.reload()
   })
 
@@ -24,6 +25,15 @@ describe('storage', () => {
     const plain = toPlainRecord(workout)
     expect(isProxy(plain.log[0].sets[0])).toBe(false)
     expect(plain.log[0].sets[0]).toEqual({ weight: '20', reps: '8', done: true })
+  })
+
+  it('creates and restores a local versioned backup', async () => {
+    const task = await store.add({ type: 'task', title: 'Original', date: '2026-09-28', done: false })
+    const backupId = await store.createBackup('Test snapshot')
+    await store.save({ ...task, title: 'Changed' })
+    await store.restoreBackup(backupId)
+    expect((await db.records.get(task.id)).title).toBe('Original')
+    expect(await store.listBackups()).toHaveLength(1)
   })
 
   it('persists a homework record and exposes it through the reactive collection', async () => {
