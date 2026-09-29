@@ -549,11 +549,6 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
                 <div v-for="habit in trackableHabits" :key="habit.id" class="habit"><div class="habit-icon" :style="{color:habit.color,background:habit.color+'18'}"><component :is="iconMap[habit.icon]||Activity" :size="17"/></div><div><div class="habit-title">{{habit.title}}</div><div class="habit-sub">{{habit.subtitle}} <span v-if="habitStreak(habit)">· 🔥 {{habitStreak(habit)}}</span></div></div><button v-if="habit.timerMinutes" class="habit-timer-btn" :aria-label="`Запустить таймер ${habit.title}`" @click="startRitualTimer(habit)"><Timer :size="14"/>{{habit.timerMinutes}}</button><button class="habit-toggle" :class="{done:habitValue(habit)>=habit.target}" @click="toggleHabit(habit)"><Check v-if="habitValue(habit)>=habit.target" :size="14"/><span v-else-if="habit.target>1" style="font-size:9px">{{habitValue(habit)}}/{{habit.target}}</span></button></div>
               </div>
               <div v-if="intentions.length" class="card side-card intention-card"><div class="section-head" style="margin:0 0 8px"><h3>Намерения дня</h3><span class="section-meta">Помнить, не отмечать</span></div><div v-for="item in intentions" :key="item.id" class="intention-row"><span :style="{background:item.color}"></span><div><strong>{{item.title}}</strong><small>{{item.subtitle}}</small></div></div></div>
-              <div class="card side-card" :class="{'focus-card':activeTask}">
-                <div style="display:flex;align-items:center;gap:8px"><Target :size="16" color="#a78bfa"/><h3>Следующий шаг</h3></div><p class="quote" style="margin:12px 0">{{activeTask ? 'Не думай обо всём плане. Сделай только это:' : 'Пространство в плане — тоже ресурс.'}}<br><strong>{{activeTask?.title}}</strong></p>
-                <button v-if="activeTask" class="primary-btn" style="width:100%" @click="toggleTask(activeTask)"><CheckCircle2 :size="16"/> Завершить шаг</button>
-              </div>
-              <div class="card side-card"><p class="quote" style="margin:0">«Система должна освобождать внимание, а не требовать его». Сегодня достаточно двигаться по одному следующему шагу.</p></div>
             </aside>
           </div>
         </template>
