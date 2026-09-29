@@ -5,6 +5,7 @@ import './styles.css'
 import './enhancements.css'
 import './productivity.css'
 import './themes.css'
+import './rituals.css'
 
 document.documentElement.dataset.theme = localStorage.getItem('momentum.theme') || 'midnight'
 
