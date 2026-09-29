@@ -68,6 +68,7 @@ export const store = {
   today: isoDay,
   tasks: computed(() => state.records.filter(r => r.type === 'task')),
   chains: computed(() => state.records.filter(r => r.type === 'chain')),
+  chainTemplates: computed(() => state.records.filter(r => r.type === 'chainTemplate').sort((a,b) => (a.order || 0) - (b.order || 0))),
   habits: computed(() => state.records.filter(r => r.type === 'habit').sort((a,b) => a.order-b.order)),
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
@@ -80,6 +81,13 @@ export const store = {
     const habits = await db.records.where('type').equals('habit').toArray()
     const migrated = habits.filter(h => !h.kind || (h.title.includes('Планка') && !h.timerMinutes)).map(h => ({ ...h, kind: h.kind || (h.title.toLowerCase().includes('пульс') ? 'intention' : 'trackable'), timerMinutes: h.timerMinutes || (h.title.includes('Планка') ? 3 : 0), updatedAt: now(), dirty: 1 }))
     if (migrated.length) await db.records.bulkPut(migrated)
+    if (await db.records.where('type').equals('chainTemplate').count() === 0) {
+      await db.records.bulkPut([
+        { id: uid(), type: 'chainTemplate', title: 'Глубокая работа', color: '#8b5cf6', icon: 'briefcase', preparations: [{id:uid(),title:'Подготовить рабочее место',duration:5},{id:uid(),title:'Убрать отвлечения',duration:5}], order: 1 },
+        { id: uid(), type: 'chainTemplate', title: 'Учебный блок', color: '#06b6d4', icon: 'activity', preparations: [{id:uid(),title:'Открыть материалы и задание',duration:5},{id:uid(),title:'Сформулировать результат блока',duration:5}], order: 2 },
+        { id: uid(), type: 'chainTemplate', title: 'Тренировка', color: '#22c55e', icon: 'dumbbell', preparations: [{id:uid(),title:'Подготовить воду и инвентарь',duration:5},{id:uid(),title:'Разминка и мобилизация',duration:10}], order: 3 }
+      ].map(record => ({...record, updatedAt:now(), dirty:1, deleted:0})))
+    }
     await reload()
     const backupDay = isoDay()
     try {
