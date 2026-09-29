@@ -9,6 +9,7 @@ export const cloud = reactive({
   user: null,
   syncing: false,
   error: '',
+  conflicts: [],
   lastSync: localStorage.getItem('momentum.lastSync') || '',
   url: import.meta.env.VITE_SUPABASE_URL || saved.url || '',
   key: import.meta.env.VITE_SUPABASE_ANON_KEY || saved.key || ''
@@ -118,13 +119,16 @@ export async function syncNow() {
     const remoteUpdates = []
     for (const row of data || []) {
       const current = localBeforeMerge.get(row.id)
-      if (!current || (!current.dirty && new Date(row.updated_at) >= new Date(current.updatedAt))) {
+      if (current?.dirty && new Date(row.updated_at) > new Date(current.updatedAt)) {
+        if (!cloud.conflicts.some(item => item.id === row.id)) cloud.conflicts.push({ id: row.id, type: current.type, title: current.title || row.payload?.title || 'Запись', local: current, remote: { ...row.payload, updatedAt: row.updated_at, deleted: row.deleted_at ? 1 : 0, dirty: 0 } })
+      } else if (!current || (!current.dirty && new Date(row.updated_at) >= new Date(current.updatedAt))) {
         remoteUpdates.push({ ...row.payload, updatedAt: row.updated_at, deleted: row.deleted_at ? 1 : 0, dirty: 0 })
       }
     }
     if (remoteUpdates.length) await db.records.bulkPut(remoteUpdates)
 
-    const dirty = (await db.records.toArray()).filter(r => r.dirty)
+    const conflictIds = new Set(cloud.conflicts.map(item => item.id))
+    const dirty = (await db.records.toArray()).filter(r => r.dirty && !conflictIds.has(r.id))
     if (dirty.length) {
       const rows = dirty.map(({ dirty: _dirty, ...record }) => ({
         id: record.id,
@@ -149,6 +153,15 @@ export async function syncNow() {
   } finally {
     cloud.syncing = false; store.state.syncing = false
   }
+}
+
+export async function resolveCloudConflict(id, strategy) {
+  const conflict = cloud.conflicts.find(item => item.id === id)
+  if (!conflict) return
+  await db.records.put(strategy === 'remote' ? conflict.remote : { ...conflict.local, dirty: 1, updatedAt: new Date().toISOString() })
+  cloud.conflicts = cloud.conflicts.filter(item => item.id !== id)
+  await store.reload()
+  if (strategy === 'local') await syncNow()
 }
 
 export function getClient() { return client }
