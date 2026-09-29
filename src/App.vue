@@ -25,11 +25,19 @@ const nav = [
 ]
 const mobileNav = nav
 const themes = [
-  {id:'midnight',name:'Полночь',description:'Фиолетовый акцент',colors:['#090a0d','#8b5cf6','#c4b5fd']},
-  {id:'ocean',name:'Океан',description:'Синий и бирюзовый',colors:['#07131b','#0ea5e9','#67e8f9']},
-  {id:'forest',name:'Лес',description:'Зелёный и мятный',colors:['#08130e','#22c55e','#6ee7b7']},
-  {id:'sunset',name:'Закат',description:'Оранжевый и коралловый',colors:['#170d0a','#f97316','#fda4af']},
-  {id:'graphite',name:'Графит',description:'Спокойный монохром',colors:['#101114','#a1a1aa','#e4e4e7']}
+  {id:'midnight',name:'Полночь',scheme:'Монохромная',description:'Фиолетовый минимализм',colors:['#090a0d','#8b5cf6','#c4b5fd','#f4f4f5']},
+  {id:'graphite',name:'Графит',scheme:'Монохромная',description:'Спокойный нейтральный UI',colors:['#101114','#71717a','#a1a1aa','#e4e4e7']},
+  {id:'rose',name:'Бургунди',scheme:'Монохромная',description:'Глубокие винные оттенки',colors:['#170a10','#881337','#e11d48','#fecdd3']},
+  {id:'ocean',name:'Океан',scheme:'Аналоговая',description:'Синий, голубой, бирюзовый',colors:['#06131b','#0369a1','#0ea5e9','#67e8f9']},
+  {id:'aurora',name:'Аврора',scheme:'Аналоговая',description:'Индиго, синий и мята',colors:['#0b1024','#4f46e5','#06b6d4','#5eead4']},
+  {id:'forest',name:'Лес',scheme:'Аналоговая',description:'Зелёный и мятный',colors:['#07110c','#15803d','#22c55e','#6ee7b7']},
+  {id:'voltage',name:'Вольтаж',scheme:'Комплементарная',description:'Синий с оранжевым',colors:['#07152b','#185adb','#f97316','#ffffff']},
+  {id:'finance',name:'Капитал',scheme:'Комплементарная',description:'Доверительный синий и рост',colors:['#071525','#002d62','#4caf50','#f5f5f5']},
+  {id:'spectrum',name:'Спектр',scheme:'Триадная',description:'Синий, янтарный, красный',colors:['#111025','#2563eb','#f59e0b','#ef4444']},
+  {id:'creative',name:'Студия',scheme:'Триадная',description:'Фиолетовый, розовый, мята',colors:['#17142a','#8b5cf6','#ffd5ff','#94fbab']},
+  {id:'coral',name:'Коралл',scheme:'Сплит-комплементарная',description:'Бирюза, коралл и золото',colors:['#07191a','#14b8a6','#fb7185','#fbbf24']},
+  {id:'eco',name:'Эко',scheme:'Натуральная',description:'Олива, зелень и беж',colors:['#151a12','#4b5842','#8cc084','#f7f3e3']},
+  {id:'sunset',name:'Закат',scheme:'Тёплая',description:'Оранжевый и коралловый',colors:['#160b09','#c2410c','#f97316','#fda4af']}
 ]
 const currentTheme = ref(localStorage.getItem('momentum.theme')||'midnight')
 const view = ref('today')
@@ -511,7 +519,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
         </template>
 
         <template v-else-if="view==='settings'">
-          <div class="theme-panel card"><div class="theme-panel-head"><div><h3>Оформление</h3><p>Тема применяется сразу и сохраняется на этом устройстве.</p></div><span>{{themes.find(theme=>theme.id===currentTheme)?.name}}</span></div><div class="theme-grid"><button v-for="theme in themes" :key="theme.id" :class="{active:currentTheme===theme.id}" @click="applyTheme(theme.id)"><div class="theme-preview" :style="{background:theme.colors[0]}"><i v-for="color in theme.colors.slice(1)" :key="color" :style="{background:color}"></i></div><span><strong>{{theme.name}}</strong><small>{{theme.description}}</small></span><Check v-if="currentTheme===theme.id" :size="15"/></button></div></div>
+          <div class="theme-panel card"><div class="theme-panel-head"><div><h3>Оформление</h3><p>Тема применяется сразу и сохраняется на этом устройстве.</p></div><span>{{themes.find(theme=>theme.id===currentTheme)?.name}}</span></div><div class="theme-grid"><button v-for="theme in themes" :key="theme.id" :class="{active:currentTheme===theme.id}" @click="applyTheme(theme.id)"><div class="theme-preview" :style="{background:theme.colors[0]}"><i v-for="color in theme.colors.slice(1)" :key="color" :style="{background:color}"></i></div><span><strong>{{theme.name}}</strong><em>{{theme.scheme}}</em><small>{{theme.description}}</small></span><Check v-if="currentTheme===theme.id" :size="15"/></button></div></div>
           <div class="settings-grid">
             <div class="card setting-card"><Cloud :size="21" color="#a78bfa"/><h3 style="margin-top:12px">Синхронизация устройств</h3><p>{{cloud.connected?`Выполнен вход: ${cloud.user?.email}. Последняя синхронизация ${formatSync()}.`:'Подключите бесплатный Supabase, чтобы один план был доступен на iPhone и компьютере.'}}</p><button class="primary-btn" @click="cloudOpen=true">{{cloud.connected?'Управление облаком':'Подключить облако'}}</button></div>
             <div class="card setting-card"><Bell :size="21" color="#f59e0b"/><h3 style="margin-top:12px">Уведомления</h3><p>Напоминания о парах, ДЗ и таймерах. Для iPhone приложение должно быть добавлено на экран «Домой».</p><button class="ghost-btn" @click="requestNotifications">{{notificationPermission==='granted'?'Уведомления включены':'Разрешить уведомления'}}</button></div>
