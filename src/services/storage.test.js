@@ -36,6 +36,13 @@ describe('storage', () => {
     expect(await store.listBackups()).toHaveLength(1)
   })
 
+  it('keeps archived records stored while hiding them from active collections', async () => {
+    const task = await store.add({ type: 'task', title: 'Archive me', date: '2026-09-30', done: true, status: 'completed' })
+    await store.save({ ...task, status: 'archived' })
+    expect(store.tasks.value).toHaveLength(0)
+    expect(await db.records.get(task.id)).toMatchObject({ title: 'Archive me', status: 'archived' })
+  })
+
   it('persists a homework record and exposes it through the reactive collection', async () => {
     const saved = await store.add({
       id: null, // New Vue forms use a null placeholder until persistence.
