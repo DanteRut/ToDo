@@ -11,6 +11,7 @@ import './chains.css'
 import './productivity2.css'
 import './productivity3.css'
 import './task-projects.css'
+import './project-moves.css'
 
 document.documentElement.dataset.theme = localStorage.getItem('momentum.theme') || 'midnight'
 
