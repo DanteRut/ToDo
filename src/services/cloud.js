@@ -2,6 +2,9 @@ import { reactive } from 'vue'
 import { createClient } from '@supabase/supabase-js'
 import { db, store } from './storage'
 
+// Supabase publishable keys are intended for frontend use; access is protected by RLS.
+const DEFAULT_SUPABASE_URL = 'https://zwokfhhmlcemwlgqdxwb.supabase.co'
+const DEFAULT_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_2Q_Bojc4S1c079gDcTj42g_Wf7GS1wb'
 const saved = JSON.parse(localStorage.getItem('momentum.cloud') || '{}')
 export const cloud = reactive({
   configured: false,
@@ -11,8 +14,8 @@ export const cloud = reactive({
   error: '',
   conflicts: [],
   lastSync: localStorage.getItem('momentum.lastSync') || '',
-  url: import.meta.env.VITE_SUPABASE_URL || saved.url || '',
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY || saved.key || ''
+  url: import.meta.env.VITE_SUPABASE_URL || saved.url || DEFAULT_SUPABASE_URL,
+  key: import.meta.env.VITE_SUPABASE_ANON_KEY || saved.key || DEFAULT_SUPABASE_PUBLISHABLE_KEY
 })
 
 let client = null
@@ -126,6 +129,7 @@ export async function syncNow() {
       }
     }
     if (remoteUpdates.length) await db.records.bulkPut(remoteUpdates)
+    await store.deduplicateBuiltInHabits()
 
     const conflictIds = new Set(cloud.conflicts.map(item => item.id))
     const dirty = (await db.records.toArray()).filter(r => r.dirty && !conflictIds.has(r.id))

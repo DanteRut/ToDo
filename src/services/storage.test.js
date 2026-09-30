@@ -36,6 +36,38 @@ describe('storage', () => {
     expect(await store.listBackups()).toHaveLength(1)
   })
 
+  it('merges duplicate copies of built-in habits while preserving history and custom habits', async () => {
+    const duplicates = [
+      {
+        id: 'seed-copy-a', type: 'habit', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты',
+        icon: 'activity', color: '#60a5fa', timerMinutes: 3, target: 1, order: 1,
+        history: { '2026-09-28': 1 }, updatedAt: '2026-09-28T10:00:00.000Z', dirty: 0, deleted: 0
+      },
+      {
+        id: 'seed-copy-b', type: 'habit', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты',
+        icon: 'activity', color: '#60a5fa', timerMinutes: 3, target: 1, order: 1,
+        history: { '2026-09-29': 1 }, updatedAt: '2026-09-29T10:00:00.000Z', dirty: 0, deleted: 0
+      },
+      {
+        id: 'custom-plank', type: 'habit', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Перед тренировкой',
+        icon: 'activity', target: 1, order: 6, history: {}, updatedAt: '2026-09-29T10:00:00.000Z', dirty: 0, deleted: 0
+      }
+    ]
+    await db.records.bulkPut(duplicates)
+
+    await store.deduplicateBuiltInHabits()
+
+    const records = await db.records.toArray()
+    const activePlankHabits = records.filter(record => record.type === 'habit' && record.title === 'Планка ЛФК' && !record.deleted)
+    expect(activePlankHabits).toHaveLength(2)
+    const builtIn = activePlankHabits.find(record => record.seedKey === 'seed-habit-plank')
+    expect(builtIn.history).toEqual({ '2026-09-28': 1, '2026-09-29': 1 })
+    expect(builtIn.id).toBe('seed-copy-a')
+    expect(records.find(record => record.id === 'seed-copy-b')).toMatchObject({ deleted: 1, dirty: 1, duplicateOf: 'seed-copy-a' })
+    expect(records.find(record => record.id === 'custom-plank')).toMatchObject({ deleted: 0, subtitle: 'Перед тренировкой' })
+    expect((await store.listBackups())[0].records).toHaveLength(3)
+  })
+
   it('keeps archived records stored while hiding them from active collections', async () => {
     const task = await store.add({ type: 'task', title: 'Archive me', date: '2026-09-30', done: true, status: 'completed' })
     await store.save({ ...task, status: 'archived' })
