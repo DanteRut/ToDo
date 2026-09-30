@@ -514,7 +514,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
             <button v-if="view==='today'" class="icon-btn" aria-label="Предыдущий день" @click="changeDay(-1)"><ChevronLeft :size="17"/></button><label v-if="view==='today'" class="date-picker-btn" aria-label="Выбрать дату"><CalendarDays :size="17"/><input v-model="selectedDate" type="date"/></label><button v-if="view==='today'" class="icon-btn" aria-label="Следующий день" @click="changeDay(1)"><ChevronRight :size="17"/></button>
             <button class="ghost-btn inbox-trigger" @click="inboxOpen=true"><Inbox :size="16"/><span>Входящие</span><b v-if="store.inbox.value.length">{{store.inbox.value.length}}</b></button>
             <button class="ghost-btn" @click="cloudOpen=true"><component :is="cloud.connected?Cloud:CloudOff" :size="16"/><span>{{cloud.connected?'В облаке':'Подключить'}}</span></button>
-            <button class="primary-btn desktop-task-create" @click="openTask()"><Plus :size="17"/><span>Новая задача</span></button>
+            <button class="primary-btn" @click="openTask()"><Plus :size="17"/><span>Новая задача</span></button>
           </div>
         </header>
 
