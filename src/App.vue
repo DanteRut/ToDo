@@ -40,6 +40,7 @@ const themes = [
   {id:'sunset',name:'Закат',scheme:'Тёплая',description:'Оранжевый и коралловый',colors:['#160b09','#c2410c','#f97316','#fda4af']}
 ]
 const currentTheme = ref(localStorage.getItem('momentum.theme')||'midnight')
+const sidebarCollapsed = ref(localStorage.getItem('momentum.sidebarCollapsed')==='true')
 const view = ref('today')
 const quickOpen = ref(false), taskOpen = ref(false), workoutOpen = ref(false), cloudOpen = ref(false)
 const chainOpen = ref(false), chainTemplateOpen = ref(false), habitOpen = ref(false), focusOpen = ref(false), focusMinimized = ref(false), focusPickerOpen = ref(false), workoutEditOpen = ref(false), historyOpen = ref(false), homeworkOpen = ref(false)
@@ -89,6 +90,7 @@ async function playTimerSound(){
 }
 
 const iconMap = { briefcase:BriefcaseBusiness, dumbbell:Dumbbell, activity:Activity, 'cup-soda':CupSoda, droplets:Droplets, 'heart-pulse':HeartPulse }
+const sidebarSyncLabel = computed(() => cloud.syncing?'Синхронизация':cloud.connected?'Все устройства связаны':'Только это устройство')
 const todayKey = computed(() => store.today())
 const dayTasks = computed(() => store.tasks.value.filter(t => t.date === selectedDate.value&&!['someday','cancelled'].includes(t.status)).sort(sortTask))
 const selectedClasses = computed(() => classesForDate(selectedDate.value))
@@ -485,6 +487,7 @@ function importData(event){const file=event.target.files?.[0];if(!file)return;co
 async function resetData(){if(!confirm('Удалить локальные данные и начать заново?'))return;await store.reset();location.reload()}
 let syncTimer;function syncSoon(){if(!cloud.connected)return;clearTimeout(syncTimer);syncTimer=setTimeout(syncNow,1200)}
 function formatSync(){if(!cloud.lastSync)return 'ещё не было';return format(new Date(cloud.lastSync),'HH:mm, d MMM',{locale:ru})}
+function toggleSidebar(){sidebarCollapsed.value=!sidebarCollapsed.value;localStorage.setItem('momentum.sidebarCollapsed',String(sidebarCollapsed.value))}
 function setView(id){view.value=id;if(id==='today')selectedDate.value=store.today()}
 
 watch(selectedWorkout, value=>{if(workoutOpen.value&&value)localStorage.setItem('momentum.workoutDraft',JSON.stringify(value))},{deep:true})
@@ -504,15 +507,18 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
 </script>
 
 <template>
-  <div class="app-shell" :class="{'has-focus-mini':focusMinimized&&focusedTask,'has-focus-mini-ritual':focusMinimized&&focusedTask&&ritualTimer.habit}">
+  <div class="app-shell" :class="{'has-focus-mini':focusMinimized&&focusedTask,'has-focus-mini-ritual':focusMinimized&&focusedTask&&ritualTimer.habit,'sidebar-collapsed':sidebarCollapsed}">
     <aside class="sidebar">
-      <div class="brand"><span class="brand-mark"><Check :size="19" stroke-width="3"/></span>Momentum</div>
-      <nav class="nav">
-        <button v-for="item in nav" :key="item.id" class="nav-btn" :class="{active:view===item.id}" @click="setView(item.id)"><component :is="item.icon" :size="18"/><span class="nav-label">{{item.label}}</span></button>
+      <div class="sidebar-brand-row">
+        <div class="brand" :title="sidebarCollapsed?'Momentum':null"><span class="brand-mark"><Check :size="19" stroke-width="3"/></span><span class="brand-label">Momentum</span></div>
+        <button class="sidebar-toggle" type="button" :aria-label="sidebarCollapsed?'Развернуть боковую панель':'Свернуть боковую панель'" :title="sidebarCollapsed?'Развернуть панель':'Свернуть панель'" :aria-pressed="sidebarCollapsed" aria-controls="primary-sidebar-nav" @click="toggleSidebar"><component :is="sidebarCollapsed?ChevronRight:ChevronLeft" :size="17"/></button>
+      </div>
+      <nav id="primary-sidebar-nav" class="nav">
+        <button v-for="item in nav" :key="item.id" class="nav-btn" :class="{active:view===item.id}" :aria-label="item.label" :title="sidebarCollapsed?item.label:null" @click="setView(item.id)"><component :is="item.icon" :size="18"/><span class="nav-label">{{item.label}}</span></button>
       </nav>
       <div class="sidebar-bottom">
-        <button class="nav-btn" style="width:100%" @click="cloudOpen=true"><Cloud :size="18"/><span class="nav-label">Облако</span></button>
-        <div class="sync-pill"><span class="sync-dot" :class="{ok:cloud.connected,spin:cloud.syncing}"></span>{{cloud.syncing?'Синхронизация':cloud.connected?'Все устройства связаны':'Только это устройство'}}</div>
+        <button class="nav-btn" style="width:100%" aria-label="Облако" :title="sidebarCollapsed?'Облако':null" @click="cloudOpen=true"><Cloud :size="18"/><span class="nav-label">Облако</span></button>
+        <div class="sync-pill" role="status" :aria-label="sidebarSyncLabel" :title="sidebarSyncLabel"><span class="sync-dot" :class="{ok:cloud.connected,spin:cloud.syncing}"></span><span class="sync-label">{{sidebarSyncLabel}}</span></div>
       </div>
     </aside>
 

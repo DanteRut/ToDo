@@ -1,0 +1,21 @@
+.app-shell{transition:grid-template-columns .22s ease}
+.sidebar{transition:width .22s ease,padding .22s ease}
+.sidebar-brand-row{display:flex;align-items:center;gap:8px;min-width:0;margin-bottom:32px}
+.sidebar-brand-row .brand{flex:1;min-width:0;margin:0;padding:0 5px;gap:11px}
+.brand-label{white-space:nowrap}
+.sidebar-toggle{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--muted);cursor:pointer;transition:background .18s,border-color .18s,color .18s}
+.sidebar-toggle:hover{background:var(--panel);border-color:var(--purple);color:var(--text)}
+.sidebar-toggle:focus-visible{outline:2px solid var(--purple2);outline-offset:2px}
+.sync-label{display:block;min-width:0}
+.app-shell.sidebar-collapsed{grid-template-columns:76px minmax(0,1fr)}
+.app-shell.sidebar-collapsed .sidebar{width:76px;padding:28px 10px}
+.app-shell.sidebar-collapsed .sidebar-brand-row{flex-direction:column;gap:12px;margin-bottom:24px}
+.app-shell.sidebar-collapsed .sidebar-brand-row .brand{justify-content:center;flex:0 0 auto;padding:0}
+.app-shell.sidebar-collapsed .brand-label,
+.app-shell.sidebar-collapsed .nav-label,
+.app-shell.sidebar-collapsed .sync-label{display:none}
+.app-shell.sidebar-collapsed .sidebar-toggle{flex-basis:36px;width:36px;height:36px}
+.app-shell.sidebar-collapsed .nav-btn{justify-content:center;padding-right:0;padding-left:0}
+.app-shell.sidebar-collapsed .sidebar-bottom .nav-btn{height:44px}
+.app-shell.sidebar-collapsed .sync-pill{justify-content:center;padding:12px 0}
+@media(prefers-reduced-motion:reduce){.app-shell,.sidebar,.sidebar-toggle{transition:none}}
