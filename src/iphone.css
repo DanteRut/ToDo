@@ -55,3 +55,6 @@
   .form-actions>.ghost-btn,.form-actions>.primary-btn{font-size:12px}.inline-action{float:none;display:block;margin-top:5px;font-size:10px}
   .toast{font-size:12px;line-height:1.35}
 }
+
+/* The floating action button replaces the duplicate header action on all mobile layouts. */
+@media (max-width:820px){.desktop-task-create{display:none!important}}
