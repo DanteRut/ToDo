@@ -11,6 +11,23 @@ export const uid = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
 export const toPlainRecord = record => JSON.parse(JSON.stringify(record))
 
+const builtInHabits = [
+  { seedKey: 'seed-habit-plank', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты', icon: 'activity', color: '#60a5fa', timerMinutes: 3, target: 1, order: 1 },
+  { seedKey: 'seed-habit-mass-shake', kind: 'trackable', title: 'Коктейль массы', subtitle: '700 ккал', icon: 'cup-soda', color: '#f59e0b', target: 1, order: 2 },
+  { seedKey: 'seed-habit-water', kind: 'trackable', title: 'Вода 2.5 л', subtitle: '5 × 500 мл', icon: 'droplets', color: '#06b6d4', target: 5, order: 3 },
+  { seedKey: 'seed-habit-pulse', kind: 'intention', title: 'Пульс под контролем', subtitle: '< 155 уд/мин', icon: 'heart-pulse', color: '#f43f5e', target: 1, order: 4 },
+  { seedKey: 'seed-habit-no-snacks', kind: 'intention', title: 'Не перекусывать', subtitle: 'Питание только по плану', icon: 'activity', color: '#a78bfa', target: 1, order: 5 }
+]
+
+function builtInHabitFor(record) {
+  if (record.type !== 'habit') return null
+  if (record.seedKey) return builtInHabits.find(habit => habit.seedKey === record.seedKey) || null
+  return builtInHabits.find(habit => record.title === habit.title && record.subtitle === habit.subtitle
+    && (!record.kind || record.kind === habit.kind)
+    && (!record.icon || record.icon === habit.icon)
+    && (record.target == null || Number(record.target) === habit.target)) || null
+}
+
 const seed = () => {
   const today = isoDay()
   const tomorrow = isoDay(addDays(new Date(), 1))
@@ -28,11 +45,7 @@ const seed = () => {
     { id: uid(), type: 'task', chainId: chainGym, title: 'Разминка и мобилизация плеч', stage: 'prepare', date: today, startTime: '18:20', duration: 10, priority: 'medium', done: false, order: 2 },
     { id: uid(), type: 'task', chainId: chainGym, title: 'Спина (ширина) + бицепс', stage: 'action', date: today, startTime: '18:30', duration: 75, priority: 'high', done: false, order: 3 },
     { id: uid(), type: 'task', title: 'Разобрать входящие за 15 минут', stage: 'action', date: tomorrow, startTime: '10:00', duration: 15, priority: 'medium', done: false, order: 1 },
-    { id: uid(), type: 'habit', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты', icon: 'activity', color: '#60a5fa', history: {}, timerMinutes: 3, target: 1, order: 1 },
-    { id: uid(), type: 'habit', kind: 'trackable', title: 'Коктейль массы', subtitle: '700 ккал', icon: 'cup-soda', color: '#f59e0b', history: {}, target: 1, order: 2 },
-    { id: uid(), type: 'habit', kind: 'trackable', title: 'Вода 2.5 л', subtitle: '5 × 500 мл', icon: 'droplets', color: '#06b6d4', history: {}, target: 5, order: 3 },
-    { id: uid(), type: 'habit', kind: 'intention', title: 'Пульс под контролем', subtitle: '< 155 уд/мин', icon: 'heart-pulse', color: '#f43f5e', history: {}, target: 1, order: 4 },
-    { id: uid(), type: 'habit', kind: 'intention', title: 'Не перекусывать', subtitle: 'Питание только по плану', icon: 'activity', color: '#a78bfa', history: {}, target: 1, order: 5 },
+    ...builtInHabits.map(habit => ({ ...habit, id: uid(), type: 'habit', history: {} })),
     { id: workoutId, type: 'workout', title: 'Спина + бицепс', day: 1, color: '#8b5cf6', exercises: [
       { id: uid(), title: 'Подтягивания с весом', sets: 4, reps: '6–8', rest: 180 },
       { id: uid(), title: 'Тяга верхнего блока', sets: 3, reps: '10–12', rest: 150 },
@@ -70,6 +83,65 @@ export const store = {
   chains: computed(() => state.records.filter(r => r.type === 'chain' && r.status !== 'archived')),
   chainTemplates: computed(() => state.records.filter(r => r.type === 'chainTemplate').sort((a,b) => (a.order || 0) - (b.order || 0))),
   habits: computed(() => state.records.filter(r => r.type === 'habit').sort((a,b) => a.order-b.order)),
+  async deduplicateBuiltInHabits() {
+    const records = await db.records.where('type').equals('habit').toArray()
+    const groups = new Map()
+    for (const record of records) {
+      const definition = builtInHabitFor(record)
+      if (!definition) continue
+      const group = groups.get(definition.seedKey) || []
+      group.push(record)
+      groups.set(definition.seedKey, group)
+    }
+
+    const timestamp = now()
+    const writes = []
+    for (const definition of builtInHabits) {
+      const group = groups.get(definition.seedKey) || []
+      const active = group.filter(record => !record.deleted)
+      const intentionalDelete = group.find(record => record.deleted && !record.duplicateOf)
+
+      if (intentionalDelete) {
+        for (const record of active) writes.push({
+          ...record,
+          seedKey: definition.seedKey,
+          duplicateOf: intentionalDelete.id,
+          updatedAt: timestamp,
+          dirty: 1,
+          deleted: 1
+        })
+        continue
+      }
+      if (!active.length) continue
+
+      const needsMigration = active.length > 1 || active.some(record => record.seedKey !== definition.seedKey)
+      if (!needsMigration) continue
+
+      const canonical = active.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)))[0]
+      const latest = active.reduce((current, record) => {
+        const currentTime = Date.parse(current.updatedAt || '') || 0
+        const recordTime = Date.parse(record.updatedAt || '') || 0
+        return recordTime > currentTime ? record : current
+      }, active[0])
+      const history = {}
+      for (const record of active) {
+        for (const [date, value] of Object.entries(record.history || {})) {
+          history[date] = Math.max(history[date] || 0, Number(value) || 0)
+        }
+      }
+
+      writes.push({ ...latest, id: canonical.id, seedKey: definition.seedKey, history, updatedAt: timestamp, dirty: 1, deleted: 0 })
+      for (const record of active) {
+        if (record.id !== canonical.id) writes.push({ ...record, seedKey: definition.seedKey, duplicateOf: canonical.id, updatedAt: timestamp, dirty: 1, deleted: 1 })
+      }
+    }
+
+    if (!writes.length) return 0
+    await this.createBackup('Перед объединением повторов')
+    await db.records.bulkPut(writes)
+    await reload()
+    return writes.length
+  },
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
   inbox: computed(() => state.records.filter(r => r.type === 'inbox').sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''))),
@@ -88,6 +160,7 @@ export const store = {
         { id: uid(), type: 'chainTemplate', title: 'Тренировка', color: '#22c55e', icon: 'dumbbell', preparations: [{id:uid(),title:'Подготовить воду и инвентарь',duration:5},{id:uid(),title:'Разминка и мобилизация',duration:10}], order: 3 }
       ].map(record => ({...record, updatedAt:now(), dirty:1, deleted:0})))
     }
+    await this.deduplicateBuiltInHabits()
     await reload()
     const backupDay = isoDay()
     try {

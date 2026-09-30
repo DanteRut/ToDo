@@ -126,6 +126,7 @@ export async function syncNow() {
       }
     }
     if (remoteUpdates.length) await db.records.bulkPut(remoteUpdates)
+    await store.deduplicateBuiltInHabits()
 
     const conflictIds = new Set(cloud.conflicts.map(item => item.id))
     const dirty = (await db.records.toArray()).filter(r => r.dirty && !conflictIds.has(r.id))
