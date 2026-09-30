@@ -69,12 +69,9 @@ npm run preview
 
 ### Автоматическая конфигурация при деплое
 
-Добавьте в GitHub **Settings → Secrets and variables → Actions**:
+Приложение содержит публичные URL и publishable key Supabase по умолчанию, поэтому вводить настройки вручную не нужно. Для другого Supabase-проекта можно переопределить их в GitHub **Settings → Secrets and variables → Actions** переменными `VITE_SUPABASE_URL` и `VITE_SUPABASE_ANON_KEY` — они применяются при сборке и имеют приоритет над значениями по умолчанию.
 
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-
-Тогда пользователю не придётся вводить параметры проекта вручную. Это не секреты административного доступа, но GitHub Secrets удобны для конфигурации сборки.
+Publishable/anon key предназначен для клиентского приложения; безопасность данных обеспечивает Row Level Security. Никогда не встраивайте `service_role` key или другие административные секреты во фронтенд.
 
 В Supabase добавьте адрес GitHub Pages в **Authentication → URL Configuration → Redirect URLs**.
 
