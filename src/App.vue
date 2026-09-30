@@ -511,7 +511,7 @@ onBeforeUnmount(()=>{clearInterval(timerInterval);clearInterval(focusInterval);c
         <header class="topbar">
           <div><div class="eyebrow">{{ view==='today' ? format(new Date(),'EEEE, d MMMM',{locale:ru}) : 'Momentum' }}</div><h1 class="page-title">{{view==='today'?dateTitle:pageTitle}}</h1></div>
           <div class="header-actions">
-            <button v-if="view==='today'" class="icon-btn" aria-label="Предыдущий день" @click="changeDay(-1)"><ChevronLeft :size="17"/></button><label v-if="view==='today'" class="date-picker-btn" aria-label="Выбрать дату"><CalendarDays :size="17"/><input v-model="selectedDate" type="date"/></label><button v-if="view==='today'" class="icon-btn" aria-label="Следующий день" @click="changeDay(1)"><ChevronRight :size="17"/></button>
+            <button v-if="view==='today'" type="button" class="icon-btn day-nav-btn" aria-label="Предыдущий день" @click="changeDay(-1)"><ChevronLeft :size="17"/></button><label v-if="view==='today'" class="date-picker-btn" aria-label="Выбрать дату"><CalendarDays :size="17"/><input v-model="selectedDate" type="date"/></label><button v-if="view==='today'" type="button" class="icon-btn day-nav-btn" aria-label="Следующий день" @click="changeDay(1)"><ChevronRight :size="17"/></button>
             <button class="ghost-btn inbox-trigger" @click="inboxOpen=true"><Inbox :size="16"/><span>Входящие</span><b v-if="store.inbox.value.length">{{store.inbox.value.length}}</b></button>
             <button class="ghost-btn" @click="cloudOpen=true"><component :is="cloud.connected?Cloud:CloudOff" :size="16"/><span>{{cloud.connected?'В облаке':'Подключить'}}</span></button>
           </div>
