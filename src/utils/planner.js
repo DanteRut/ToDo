@@ -16,7 +16,6 @@ export function taskScore(task, allTasks, now = new Date()) {
   if (task.date < today) score += 120
   if (task.date === today) score += 50
   if (task.date === today && taskMinute <= minute) score += 45 - Math.min(40, Math.floor((minute - taskMinute) / 15))
-  if (task.stage === 'prepare') score += 12
   if ((task.duration || 0) <= 15) score += 5
   return score
 }

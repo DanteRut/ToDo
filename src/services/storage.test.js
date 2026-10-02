@@ -27,6 +27,86 @@ describe('storage', () => {
     expect(plain.log[0].sets[0]).toEqual({ weight: '20', reps: '8', done: true })
   })
 
+  it('seeds only action tasks and templates without preparation steps', async () => {
+    await store.init()
+
+    expect(store.tasks.value.every(task => task.stage === 'action')).toBe(true)
+    expect(store.chainTemplates.value.every(template => !Object.prototype.hasOwnProperty.call(template, 'preparations'))).toBe(true)
+  })
+
+  it('soft-deletes legacy preparation and completion tasks and strips old template steps', async () => {
+    const updatedAt = '2026-09-30T10:00:00.000Z'
+    await db.records.bulkPut([
+      { id: 'legacy-prepare', type: 'task', title: 'Prepare', stage: 'prepare', date: '2026-09-30', updatedAt, dirty: 0, deleted: 0 },
+      { id: 'legacy-finish', type: 'task', title: 'Finish', stage: 'finish', date: '2026-09-30', updatedAt, dirty: 0, deleted: 0 },
+      { id: 'deleted-legacy', type: 'task', title: 'Old deleted step', stage: 'prepare', date: '2026-09-30', updatedAt, dirty: 0, deleted: 1 },
+      { id: 'action-task', type: 'task', title: 'Action', stage: 'action', date: '2026-09-30', updatedAt, dirty: 0, deleted: 0 },
+      { id: 'old-template', type: 'chainTemplate', title: 'Old template', preparations: [{ id: 'prep', title: 'Prepare', duration: 5 }], updatedAt, dirty: 0, deleted: 0 }
+    ])
+
+    await store.init()
+    const records = await db.records.toArray()
+
+    expect(records.find(record => record.id === 'legacy-prepare')).toMatchObject({ id: 'legacy-prepare', type: 'task', deleted: 1, dirty: 1 })
+    expect(records.find(record => record.id === 'legacy-finish')).toMatchObject({ id: 'legacy-finish', type: 'task', deleted: 1, dirty: 1 })
+    expect(records.find(record => record.id === 'legacy-prepare')).not.toHaveProperty('stage')
+    expect(records.find(record => record.id === 'legacy-prepare')).not.toHaveProperty('title')
+    expect(records.find(record => record.id === 'legacy-finish')).not.toHaveProperty('stage')
+    expect(records.find(record => record.id === 'legacy-finish')).not.toHaveProperty('title')
+    expect(records.find(record => record.id === 'deleted-legacy')).not.toHaveProperty('stage')
+    expect(store.tasks.value.map(task => task.id)).toEqual(['action-task'])
+    expect(records.find(record => record.id === 'old-template')).not.toHaveProperty('preparations')
+    expect(records.find(record => record.id === 'old-template')).toMatchObject({ dirty: 1 })
+    expect(await db.backups.count()).toBeGreaterThan(0)
+    const backups = await store.listBackups()
+    expect(backups.some(backup => backup.records.some(record => record.id === 'legacy-prepare' && record.stage === 'prepare'))).toBe(true)
+  })
+
+  it('releases expired unfinished chain tasks as free overdue actions', async () => {
+    const updatedAt = '2026-09-30T10:00:00.000Z'
+    const record = (id, changes = {}) => ({ id, type: 'task', chainId: 'chain-old', title: id, stage: 'action', date: '2026-09-30', startTime: '10:00', status: 'planned', done: false, updatedAt, dirty: 0, deleted: 0, ...changes })
+    await db.records.bulkPut([
+      record('expired'),
+      record('waiting', { status: 'waiting' }),
+      record('someday', { status: 'someday' }),
+      record('today', { date: '2026-10-01' }),
+      record('done', { done: true, status: 'completed' }),
+      record('cancelled', { status: 'cancelled' }),
+      record('free', { chainId: null })
+    ])
+    await store.reload()
+
+    expect(await store.releaseExpiredChainTasks('2026-10-01')).toBe(3)
+    for (const id of ['expired', 'waiting', 'someday']) {
+      const task = await db.records.get(id)
+      expect(task).toMatchObject({
+        chainId: null,
+        releasedFromChainIds: ['chain-old'],
+        date: '2026-09-30',
+        startTime: '',
+        stage: 'action',
+        status: 'planned',
+        done: false
+      })
+    }
+    expect((await db.records.get('today')).chainId).toBe('chain-old')
+    expect((await db.records.get('done')).chainId).toBe('chain-old')
+    expect((await db.records.get('cancelled')).chainId).toBe('chain-old')
+    expect((await db.records.get('free')).chainId).toBeNull()
+  })
+
+  it('does not persist new preparation or completion task records', async () => {
+    expect(await store.add({ type: 'task', title: 'Prepare', stage: 'prepare', date: '2026-09-30' })).toBeNull()
+    expect(await store.add({ type: 'task', title: 'Finish', stage: 'finish', date: '2026-09-30' })).toBeNull()
+    expect((await db.records.where('type').equals('task').toArray())).toHaveLength(0)
+
+    const action = await store.add({ type: 'task', title: 'Action', stage: 'action', date: '2026-09-30' })
+    expect(await store.save({ ...action, stage: 'finish' })).toBeNull()
+    expect(await db.records.get(action.id)).toMatchObject({ type: 'task', dirty: 1, deleted: 1 })
+    expect(await db.records.get(action.id)).not.toHaveProperty('stage')
+    expect(await db.records.get(action.id)).not.toHaveProperty('title')
+  })
+
   it('creates and restores a local versioned backup', async () => {
     const task = await store.add({ type: 'task', title: 'Original', date: '2026-09-28', done: false })
     const backupId = await store.createBackup('Test snapshot')
