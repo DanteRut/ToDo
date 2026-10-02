@@ -11,7 +11,18 @@ const isoDay = (date = new Date()) => format(date, 'yyyy-MM-dd')
 export const uid = () => crypto.randomUUID()
 const now = () => new Date().toISOString()
 export const toPlainRecord = record => JSON.parse(JSON.stringify(record))
-const nonActionTaskStages = new Set(['prepare', 'finish'])
+const nonCreatableTaskStages = new Set(['finish'])
+
+const defaultChainTemplateDefinitions = [
+  { type: 'chainTemplate', title: 'Глубокая работа', color: '#8b5cf6', icon: 'briefcase', preparations: [{ title: 'Подготовить рабочее место', duration: 5 }, { title: 'Убрать отвлечения', duration: 5 }], order: 1 },
+  { type: 'chainTemplate', title: 'Учебный блок', color: '#06b6d4', icon: 'activity', preparations: [{ title: 'Открыть материалы и задание', duration: 5 }, { title: 'Сформулировать результат блока', duration: 5 }], order: 2 },
+  { type: 'chainTemplate', title: 'Тренировка', color: '#22c55e', icon: 'dumbbell', preparations: [{ title: 'Подготовить воду и инвентарь', duration: 5 }, { title: 'Разминка и мобилизация', duration: 10 }], order: 3 }
+]
+
+function defaultPreparationsFor(templateTitle) {
+  const definition = defaultChainTemplateDefinitions.find(template => template.title === templateTitle)
+  return (definition?.preparations || []).map(step => ({ ...step, id: uid() }))
+}
 
 const builtInHabits = [
   { seedKey: 'seed-habit-plank', kind: 'trackable', title: 'Планка ЛФК', subtitle: 'Поясница · 3 минуты', icon: 'activity', color: '#60a5fa', timerMinutes: 3, target: 1, order: 1 },
@@ -38,9 +49,13 @@ const seed = () => {
   const workoutId = uid()
   return [
     { id: chainWork, type: 'chain', title: 'Глубокая работа', icon: 'briefcase', color: '#8b5cf6', date: today, startTime: '09:30', note: 'Главный результат дня', order: 1 },
-    { id: uid(), type: 'task', chainId: chainWork, title: 'Фокус-блок: главный проект', stage: 'action', date: today, startTime: '09:30', duration: 90, priority: 'high', done: false, order: 1 },
+    { id: uid(), type: 'task', chainId: chainWork, title: 'Приготовить чай и выпить витамины', stage: 'prepare', date: today, startTime: '09:20', duration: 10, priority: 'normal', done: false, order: 1 },
+    { id: uid(), type: 'task', chainId: chainWork, title: 'Сформулировать один измеримый результат', stage: 'prepare', date: today, startTime: '09:30', duration: 10, priority: 'medium', done: false, order: 2 },
+    { id: uid(), type: 'task', chainId: chainWork, title: 'Фокус-блок: главный проект', stage: 'action', date: today, startTime: '09:40', duration: 90, priority: 'high', done: false, order: 3 },
     { id: chainGym, type: 'chain', title: 'Тренировка · День 1', icon: 'dumbbell', color: '#22c55e', date: today, startTime: '18:30', workoutId, order: 2 },
-    { id: uid(), type: 'task', chainId: chainGym, title: 'Спина (ширина) + бицепс', stage: 'action', date: today, startTime: '18:30', duration: 75, priority: 'high', done: false, order: 1 },
+    { id: uid(), type: 'task', chainId: chainGym, title: 'Свекольный порошок + креатин', stage: 'prepare', date: today, startTime: '17:45', duration: 5, priority: 'normal', done: false, order: 1 },
+    { id: uid(), type: 'task', chainId: chainGym, title: 'Разминка и мобилизация плеч', stage: 'prepare', date: today, startTime: '18:20', duration: 10, priority: 'medium', done: false, order: 2 },
+    { id: uid(), type: 'task', chainId: chainGym, title: 'Спина (ширина) + бицепс', stage: 'action', date: today, startTime: '18:30', duration: 75, priority: 'high', done: false, order: 3 },
     { id: uid(), type: 'task', title: 'Разобрать входящие за 15 минут', stage: 'action', date: tomorrow, startTime: '10:00', duration: 15, priority: 'medium', done: false, order: 1 },
     ...builtInHabits.map(habit => ({ ...habit, id: uid(), type: 'habit', history: {} })),
     { id: workoutId, type: 'workout', title: 'Спина + бицепс', day: 1, color: '#8b5cf6', exercises: [
@@ -142,16 +157,34 @@ export const store = {
   async releaseExpiredChainTasks(today) {
     let released = 0
     await db.transaction('rw', db.records, async () => {
-      const tasks = await db.records.where('type').equals('task').toArray()
-      const expired = expiredChainTasks(tasks.filter(task => !task.deleted && task.status !== 'archived'), today)
+      const [tasks, chains] = await Promise.all([
+        db.records.where('type').equals('task').toArray(),
+        db.records.where('type').equals('chain').toArray()
+      ])
+      const activeTasks = tasks.filter(task => !task.deleted)
+      const expired = expiredChainTasks(activeTasks, today)
       if (!expired.length) return
+
+      const expiredIds = new Set(expired.map(task => task.id))
+      const expiredChainIds = new Set(expired.map(task => task.chainId))
       const timestamp = now()
-      await db.records.bulkPut(expired.map(task => ({
-        ...releaseAsFreeOverdueTask(task),
+      const taskWrites = activeTasks.filter(task => expiredChainIds.has(task.chainId)).map(task => {
+        const releasedTask = expiredIds.has(task.id)
+          ? releaseAsFreeOverdueTask(task)
+          : {
+              ...task,
+              releasedFromChainIds: [...new Set([...(task.releasedFromChainIds || []), task.chainId].filter(Boolean))],
+              chainId: null
+            }
+        return { ...releasedTask, updatedAt: timestamp, dirty: 1, deleted: 0 }
+      })
+      const chainWrites = chains.filter(chain => expiredChainIds.has(chain.id) && !chain.deleted).map(chain => ({
+        ...chain,
         updatedAt: timestamp,
         dirty: 1,
-        deleted: 0
-      })))
+        deleted: 1
+      }))
+      await db.records.bulkPut([...taskWrites, ...chainWrites])
       released = expired.length
     })
     if (released) {
@@ -160,28 +193,74 @@ export const store = {
     }
     return released
   },
-  async removeLegacyChainStages() {
-    const [tasks, templates] = await Promise.all([
-      db.records.where('type').equals('task').toArray(),
-      db.records.where('type').equals('chainTemplate').toArray()
-    ])
-    const legacyTasks = tasks.filter(record => nonActionTaskStages.has(record.stage))
-    const legacyTemplates = templates.filter(record => Object.prototype.hasOwnProperty.call(record, 'preparations'))
-    if (!legacyTasks.length && !legacyTemplates.length) return { tasks: 0, templates: 0 }
+  async restoreLegacyPreparations() {
+    const backups = (await db.backups.toArray())
+      .filter(backup => backup.label === 'Перед отключением подготовок и завершений')
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))
+    if (!backups.length) return 0
 
-    try { await this.createBackup('Перед отключением подготовок и завершений') } catch { /* Do not block cleanup if backups are unavailable. */ }
+    const currentRecords = await db.records.toArray()
+    const currentById = new Map(currentRecords.map(record => [record.id, record]))
+    const recoveries = new Map()
+    for (const backup of backups) {
+      for (const source of backup.records || []) {
+        const current = currentById.get(source.id)
+        if (source.type === 'task' && source.stage === 'prepare' && !source.deleted
+          && current?.type === 'task' && current.deleted && !current.stage && !current.title) {
+          recoveries.set(source.id, { ...source })
+        }
+        if (source.type === 'chainTemplate' && Array.isArray(source.preparations)
+          && current?.type === 'chainTemplate' && !current.deleted
+          && !Object.prototype.hasOwnProperty.call(current, 'preparations')) {
+          recoveries.set(source.id, { ...current, preparations: source.preparations })
+        }
+      }
+    }
+    if (!recoveries.size) return 0
+
     const timestamp = now()
-    const writes = [
-      ...legacyTasks.map(record => ({ id: record.id, type: 'task', updatedAt: timestamp, dirty: 1, deleted: 1 })),
-      ...legacyTemplates.map(record => {
-        const { preparations: _preparations, ...cleanTemplate } = record
-        return { ...cleanTemplate, updatedAt: timestamp, dirty: 1 }
-      })
-    ]
+    const writes = [...recoveries.values()].map(record => ({
+      ...record,
+      updatedAt: timestamp,
+      dirty: 1,
+      deleted: 0
+    }))
+    await db.transaction('rw', db.records, async () => { await db.records.bulkPut(writes) })
+    try { localStorage.setItem('momentum.localTouched', '1') } catch { /* Recovered data remains available locally. */ }
+    await reload()
+    return writes.length
+  },
+  async ensureDefaultChainTemplatePreparations() {
+    const templates = await db.records.where('type').equals('chainTemplate').toArray()
+    const writes = templates
+      .filter(template => !template.deleted
+        && !Object.prototype.hasOwnProperty.call(template, 'preparations')
+        && defaultChainTemplateDefinitions.some(definition => definition.title === template.title))
+      .map(template => ({
+        ...template,
+        preparations: defaultPreparationsFor(template.title),
+        updatedAt: now(),
+        dirty: 1,
+        deleted: 0
+      }))
+    if (!writes.length) return 0
+    await db.records.bulkPut(writes)
+    try { localStorage.setItem('momentum.localTouched', '1') } catch { /* Template defaults remain available locally. */ }
+    await reload()
+    return writes.length
+  },
+  async removeLegacyChainStages() {
+    const tasks = await db.records.where('type').equals('task').toArray()
+    const legacyTasks = tasks.filter(record => nonCreatableTaskStages.has(record.stage) && !record.deleted)
+    if (!legacyTasks.length) return { tasks: 0 }
+
+    try { await this.createBackup('Перед отключением завершений') } catch { /* Do not block cleanup if backups are unavailable. */ }
+    const timestamp = now()
+    const writes = legacyTasks.map(record => ({ id: record.id, type: 'task', updatedAt: timestamp, dirty: 1, deleted: 1 }))
     await db.transaction('rw', db.records, async () => { await db.records.bulkPut(writes) })
     try { localStorage.setItem('momentum.localTouched', '1') } catch { /* Cleanup remains valid if local storage is unavailable. */ }
     await reload()
-    return { tasks: legacyTasks.length, templates: legacyTemplates.length }
+    return { tasks: legacyTasks.length }
   },
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
@@ -195,13 +274,18 @@ export const store = {
     const migrated = habits.filter(h => !h.kind || (h.title.includes('Планка') && !h.timerMinutes)).map(h => ({ ...h, kind: h.kind || (h.title.toLowerCase().includes('пульс') ? 'intention' : 'trackable'), timerMinutes: h.timerMinutes || (h.title.includes('Планка') ? 3 : 0), updatedAt: now(), dirty: 1 }))
     if (migrated.length) await db.records.bulkPut(migrated)
     if (await db.records.where('type').equals('chainTemplate').count() === 0) {
-      await db.records.bulkPut([
-        { id: uid(), type: 'chainTemplate', title: 'Глубокая работа', color: '#8b5cf6', icon: 'briefcase', order: 1 },
-        { id: uid(), type: 'chainTemplate', title: 'Учебный блок', color: '#06b6d4', icon: 'activity', order: 2 },
-        { id: uid(), type: 'chainTemplate', title: 'Тренировка', color: '#22c55e', icon: 'dumbbell', order: 3 }
-      ].map(record => ({...record, updatedAt:now(), dirty:1, deleted:0})))
+      await db.records.bulkPut(defaultChainTemplateDefinitions.map(template => ({
+        ...template,
+        id: uid(),
+        preparations: defaultPreparationsFor(template.title),
+        updatedAt: now(),
+        dirty: 1,
+        deleted: 0
+      })))
     }
     await this.deduplicateBuiltInHabits()
+    await this.restoreLegacyPreparations()
+    await this.ensureDefaultChainTemplatePreparations()
     await this.removeLegacyChainStages()
     await reload()
     const backupDay = isoDay()
@@ -216,7 +300,7 @@ export const store = {
     // Vue wraps nested form values in Proxy objects. IndexedDB cannot clone Proxies,
     // so every record is converted to a plain JSON document before persistence.
     const plain = toPlainRecord(record)
-    if (plain.type === 'task' && !plain.deleted && nonActionTaskStages.has(plain.stage)) {
+    if (plain.type === 'task' && !plain.deleted && nonCreatableTaskStages.has(plain.stage)) {
       const existing = plain.id ? await db.records.get(plain.id) : null
       if (existing && !existing.deleted) {
         await db.records.put({ id: existing.id, type: 'task', updatedAt: now(), dirty: markDirty ? 1 : 0, deleted: 1 })

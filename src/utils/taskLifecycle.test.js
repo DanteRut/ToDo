@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { expiredChainTasks, releaseAsFreeOverdueTask } from './taskLifecycle'
 
 describe('chain task lifecycle', () => {
-  it('selects unfinished active tasks only after their chain date has passed', () => {
+  it('selects unfinished actions and preparations only after their chain date has passed', () => {
     const tasks = [
       { id: 'expired', chainId: 'chain-a', date: '2026-09-30', status: 'planned', done: false },
       { id: 'today', chainId: 'chain-a', date: '2026-10-01', status: 'planned', done: false },
@@ -18,7 +18,7 @@ describe('chain task lifecycle', () => {
       { id: 'invalid-date', chainId: 'chain-a', date: '2026-02-31', done: false }
     ]
 
-    expect(expiredChainTasks(tasks, '2026-10-01').map(task => task.id)).toEqual(['expired', 'waiting', 'someday'])
+    expect(expiredChainTasks(tasks, '2026-10-01').map(task => task.id)).toEqual(['expired', 'waiting', 'someday', 'legacy-prepare'])
     expect(expiredChainTasks(tasks, 'not-a-date')).toEqual([])
   })
 

@@ -130,6 +130,8 @@ export async function syncNow() {
     }
     if (remoteUpdates.length) await db.records.bulkPut(remoteUpdates)
     await store.deduplicateBuiltInHabits()
+    await store.restoreLegacyPreparations()
+    await store.ensureDefaultChainTemplatePreparations()
     await store.removeLegacyChainStages()
 
     const conflictIds = new Set(cloud.conflicts.map(item => item.id))
@@ -165,6 +167,8 @@ export async function resolveCloudConflict(id, strategy) {
   if (!conflict) return
   await db.records.put(strategy === 'remote' ? conflict.remote : { ...conflict.local, dirty: 1, updatedAt: new Date().toISOString() })
   cloud.conflicts = cloud.conflicts.filter(item => item.id !== id)
+  await store.restoreLegacyPreparations()
+  await store.ensureDefaultChainTemplatePreparations()
   await store.removeLegacyChainStages()
   await store.reload()
   if (cloud.connected) await syncNow()

@@ -1,4 +1,4 @@
-const legacyNonActionStages = new Set(['prepare', 'finish'])
+const nonReleasableStages = new Set(['finish'])
 const nonActiveStatuses = new Set(['cancelled', 'archived', 'completed'])
 
 function isValidDateKey(value) {
@@ -12,7 +12,7 @@ export function expiredChainTasks(tasks, today) {
   return tasks.filter(task => task.chainId
     && !task.done
     && !nonActiveStatuses.has(task.status)
-    && !legacyNonActionStages.has(task.stage)
+    && !nonReleasableStages.has(task.stage)
     && isValidDateKey(task.date)
     && task.date < today)
 }
