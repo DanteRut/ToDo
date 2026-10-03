@@ -20,9 +20,11 @@ import { habitValueForDate, habitsForDate, homeworkForDate, tasksForDate, toggle
 import { buildStudyWeekSummary } from './utils/studyWeek'
 import { planEveningReviewSave, previousEveningMessage, ritualTaskDate } from './utils/dailyReview'
 import { focusSecondsRemaining, restoreFocusTimer } from './utils/focusTimer'
+import { hasScheduleConflict, isWakePlanComplete, REST_ACTIVITIES, timeToMinute } from './utils/weeklyPlan'
 import { compareDeadlines, deadlineDateKey, deadlineTone } from './utils/deadlines'
 import { CLASS_SCHEDULE, DAY_NAMES, SEMESTER, academicWeek, classesForDate, isInSemester, nextStudyDate, nextClassOccurrence } from './data/classSchedule'
 import StudyWeekOverview from './components/StudyWeekOverview.vue'
+import WeeklyRoutinePlanner from './components/WeeklyRoutinePlanner.vue'
 
 const nav = [
   { id:'today', label:'Сегодня', icon:Sun }, { id:'tasks', label:'План', icon:ListTodo },
@@ -160,6 +162,94 @@ const upcomingHomework = computed(() => allHomework.value.filter(item=>!item.don
 const selectedAcademicWeek = computed(() => academicWeek(selectedDate.value))
 const studyWeekStart = computed(() => startOfWeek(parseISO(selectedDate.value), {weekStartsOn:1}))
 const studyWeekDays = computed(() => Array.from({length:5},(_,i)=>addDays(studyWeekStart.value,i)))
+const weeklyPlanWeekStart = computed(() => format(studyWeekStart.value,'yyyy-MM-dd'))
+const weeklyPlanRecord = computed(() => store.state.records.find(record=>record.type==='weeklyPlan'&&record.weekStart===weeklyPlanWeekStart.value)||null)
+const isCurrentSaturday = computed(() => parseISO(todayKey.value).getDay()===6)
+const nextPlanningWeekStart = computed(() => format(addDays(startOfWeek(parseISO(todayKey.value),{weekStartsOn:1}),7),'yyyy-MM-dd'))
+const saturdayNextWeekPlan = computed(() => store.state.records.find(record=>record.type==='weeklyPlan'&&record.weekStart===nextPlanningWeekStart.value)||null)
+const tomorrowWakePlan = computed(() => {const dateKey=format(addDays(parseISO(todayKey.value),1),'yyyy-MM-dd'),weekStart=format(startOfWeek(parseISO(dateKey),{weekStartsOn:1}),'yyyy-MM-dd'),plan=store.state.records.find(record=>record.type==='weeklyPlan'&&record.weekStart===weekStart);return{dateKey,wakeTime:plan?.wakeTimes?.[dateKey]||'',firstStep:plan?.wakeSteps?.[dateKey]||'',confirmedAt:plan?.confirmedAt||null}})
+const showTomorrowWakePlan = computed(() => selectedDate.value===todayKey.value&&clockNow.value.getHours()>=18)
+const weeklyPlannerDays = computed(() => Array.from({ length: 7 }, (_, index) => {
+  const date = addDays(studyWeekStart.value, index)
+  const dateKey = format(date, 'yyyy-MM-dd')
+  const weekday = date.getDay()
+  const scheduledClasses = classesForDate(date)
+  const classes = scheduledClasses.map(lesson => ({
+    id: `class:${dateKey}:${lesson.id}`,
+    type: 'class',
+    title: lesson.subject,
+    startTime: lesson.start,
+    endTime: lesson.end,
+    duration: timeToMinute(lesson.end) - timeToMinute(lesson.start),
+    detail: `${lesson.pair} пара · ауд. ${lesson.room}`
+  }))
+  const firstClassMinute = scheduledClasses.length ? timeToMinute(scheduledClasses[0].start) : null
+  const commuteStart = firstClassMinute === null ? null : Math.max(0, firstClassMinute - 50)
+  const commute = commuteStart === null ? [] : [{
+    id: `commute:${dateKey}`,
+    type: 'commute',
+    title: 'Сборы и дорога до вуза',
+    startTime: `${String(Math.floor(commuteStart / 60)).padStart(2, '0')}:${String(commuteStart % 60).padStart(2, '0')}`,
+    duration: firstClassMinute - commuteStart,
+    detail: 'Дорога · перед первой парой'
+  }]
+  const tasks = store.tasks.value
+    .filter(task => task.date === dateKey && task.startTime && !task.done && !['someday', 'waiting', 'cancelled', 'archived'].includes(task.status))
+    .map(task => ({
+      id: `task:${task.id}`,
+      type: 'task',
+      title: task.title,
+      startTime: task.startTime,
+      duration: Number(task.duration) || 30,
+      detail: task.chainId ? store.chains.value.find(chain => chain.id === task.chainId)?.title || 'Задача' : 'Задача'
+    }))
+  const homework = allHomework.value
+    .filter(item => !item.done && !item.sourceTaskId && item.plannedTime && (item.plannedDates || []).includes(dateKey))
+    .map(item => ({
+      id: `homework:${item.id}`,
+      type: 'homework',
+      title: item.title,
+      startTime: item.plannedTime,
+      duration: Number(item.estimatedMinutes) || 45,
+      detail: item.subject || 'Домашнее задание'
+    }))
+  const habits = trackableHabits.value
+    .filter(habit => habit.preferredTime && (habit.schedule || [0, 1, 2, 3, 4, 5, 6]).includes(weekday))
+    .map(habit => ({
+      id: `habit:${habit.id}:${dateKey}`,
+      type: 'habit',
+      title: habit.title,
+      startTime: habit.preferredTime,
+      duration: Number(habit.timerMinutes) || 15,
+      detail: 'Ритуал'
+    }))
+  const rests = (weeklyPlanRecord.value?.restBlocks || [])
+    .filter(block => block.dateKey === dateKey)
+    .map(block => {
+      const activity = REST_ACTIVITIES.find(option => option.id === block.activityId)
+      return {
+        id: block.id,
+        type: 'rest',
+        title: activity?.title || block.title || 'Отдых',
+        activityId: block.activityId,
+        startTime: block.startTime,
+        duration: Number(block.duration) || activity?.duration || 30,
+        detail: 'Отдых'
+      }
+    })
+  const events = [...commute, ...classes, ...tasks, ...homework, ...habits, ...rests]
+    .sort((a, b) => (timeToMinute(a.startTime) ?? 0) - (timeToMinute(b.startTime) ?? 0))
+
+  return {
+    key: dateKey,
+    weekday: format(date, 'EEEE', { locale: ru }),
+    weekdayShort: format(date, 'EEE', { locale: ru }),
+    weekdayNumber: weekday,
+    dateLabel: format(date, 'd MMM', { locale: ru }),
+    isToday: dateKey === todayKey.value,
+    events
+  }
+}))
 const dayChains = computed(() => store.chains.value.filter(c => c.date === selectedDate.value).sort((a,b)=>(a.order??Number.MAX_SAFE_INTEGER)-(b.order??Number.MAX_SAFE_INTEGER)||(a.startTime||'').localeCompare(b.startTime||'')))
 const looseTasks = computed(() => dayTasks.value.filter(t => !t.chainId))
 const completedCount = computed(() => dayTasks.value.filter(t => t.done).length)
@@ -330,7 +420,43 @@ async function releaseExpiredChainTasks(dateKey=todayKey.value){
   if(released){flash(`${released} ${pluralize(released,['действие освобождено','действия освобождены','действий освобождено'])} из завершившихся цепочек`);syncSoon()}
   return released
 }
-function checkNotifications(){const now=new Date();clockNow.value=now;const key=format(now,'yyyy-MM-dd');if(todayDate.value!==key){const previous=todayDate.value;todayDate.value=key;if(selectedDate.value===previous)selectedDate.value=key}void releaseExpiredChainTasks(key);const minute=now.getHours()*60+now.getMinutes();for(const lesson of classesForDate(key)){const start=Number(lesson.start.slice(0,2))*60+Number(lesson.start.slice(3));if(start-minute>=0&&start-minute<=15)sendNotification(`class.${key}.${lesson.id}`,'Скоро пара',`${lesson.subject} · ${lesson.start} · ауд. ${lesson.room}`)}if(now.getHours()>=18){const tomorrow=format(addDays(now,1),'yyyy-MM-dd');const count=allHomework.value.filter(item=>!item.done&&item.dueDate<=tomorrow).length;if(count)sendNotification(`homework.${key}`,'Проверь домашние задания',`${count} ${pluralize(count,['задание требует','задания требуют','заданий требуют'])} внимания`);const deadlines=store.tasks.value.filter(task=>!task.done&&task.dueDate&&task.dueDate<=tomorrow).length;if(deadlines)sendNotification(`deadlines.${key}`,'Приближаются крайние сроки',`${deadlines} ${pluralize(deadlines,['задача требует','задачи требуют','задач требуют'])} внимания`)}}
+function checkNotifications() {
+  const now = new Date()
+  clockNow.value = now
+  const key = format(now, 'yyyy-MM-dd')
+  if (todayDate.value !== key) {
+    const previous = todayDate.value
+    todayDate.value = key
+    if (selectedDate.value === previous) selectedDate.value = key
+  }
+
+  void releaseExpiredChainTasks(key)
+  const minute = now.getHours() * 60 + now.getMinutes()
+  for (const lesson of classesForDate(key)) {
+    const start = Number(lesson.start.slice(0, 2)) * 60 + Number(lesson.start.slice(3))
+    if (start - minute >= 0 && start - minute <= 15) {
+      sendNotification(`class.${key}.${lesson.id}`, 'Скоро пара', `${lesson.subject} · ${lesson.start} · ауд. ${lesson.room}`)
+    }
+  }
+
+  if (now.getHours() >= 18) {
+    const tomorrow = format(addDays(now, 1), 'yyyy-MM-dd')
+    const count = allHomework.value.filter(item => !item.done && item.dueDate <= tomorrow).length
+    if (count) {
+      sendNotification(`homework.${key}`, 'Проверь домашние задания', `${count} ${pluralize(count, ['задание требует', 'задания требуют', 'заданий требуют'])} внимания`)
+    }
+    const deadlines = store.tasks.value.filter(task => !task.done && task.dueDate && task.dueDate <= tomorrow).length
+    if (deadlines) {
+      sendNotification(`deadlines.${key}`, 'Приближаются крайние сроки', `${deadlines} ${pluralize(deadlines, ['задача требует', 'задачи требуют', 'задач требуют'])} внимания`)
+    }
+
+    const wakePlan = tomorrowWakePlan.value
+    const wakeMessage = wakePlan.wakeTime
+      ? `Завтра подъём в ${wakePlan.wakeTime}.${wakePlan.firstStep ? ` Первый шаг: ${wakePlan.firstStep}` : ''}`
+      : 'Время подъёма ещё не задано — открой недельный план.'
+    sendNotification(`wake.${key}`, 'План пробуждения на завтра', wakeMessage)
+  }
+}
 async function loadBackups(){backups.value=await store.listBackups()}
 async function makeBackup(){await store.createBackup('Ручная копия');await loadBackups();flash('Локальная версия сохранена')}
 async function restoreLocalBackup(id){if(!confirm('Восстановить эту версию данных?'))return;await store.restoreBackup(id);flash('Версия восстановлена');syncSoon()}
@@ -614,6 +740,105 @@ let syncTimer;function syncSoon(){if(!cloud.connected)return;clearTimeout(syncTi
 function formatSync(){if(!cloud.lastSync)return 'ещё не было';return format(new Date(cloud.lastSync),'HH:mm, d MMM',{locale:ru})}
 function toggleSidebar(){sidebarCollapsed.value=!sidebarCollapsed.value;localStorage.setItem('momentum.sidebarCollapsed',String(sidebarCollapsed.value))}
 function setView(id){view.value=id;if(id==='today'){todayDate.value=store.today();selectedDate.value=todayDate.value;void releaseExpiredChainTasks(todayDate.value)}}
+function openWeeklyPlanner(dateKey) {
+  selectedDate.value = dateKey
+  view.value = 'study'
+}
+
+let weeklyPlanWriteQueue = Promise.resolve()
+function saveWeeklyPlan(update = {}, confirmPlan = false, weekStart = weeklyPlanWeekStart.value) {
+  const write = async () => {
+    const existing = store.state.records.find(record => record.type === 'weeklyPlan' && record.weekStart === weekStart) || null
+    const patch = typeof update === 'function' ? update(existing) : update
+    if (!patch && !confirmPlan) return false
+
+    const record = {
+      ...(existing || { id: uid(), type: 'weeklyPlan', weekStart, wakeTimes: {}, wakeSteps: {}, restBlocks: [] }),
+      ...patch,
+      type: 'weeklyPlan',
+      weekStart,
+      confirmedAt: confirmPlan ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString()
+    }
+    if (existing) await store.save(record)
+    else await store.add(record)
+    syncSoon()
+    return true
+  }
+
+  const pending = weeklyPlanWriteQueue.then(write, write)
+  weeklyPlanWriteQueue = pending.catch(() => {})
+  return pending
+}
+
+async function saveWeeklyWakeTime({ dateKey, value }) {
+  const weekStart = weeklyPlanWeekStart.value
+  await saveWeeklyPlan(existing => {
+    const current = existing?.wakeTimes || {}
+    if ((current[dateKey] || '') === value) return null
+    const wakeTimes = { ...current }
+    if (value) wakeTimes[dateKey] = value
+    else delete wakeTimes[dateKey]
+    return { wakeTimes }
+  }, false, weekStart)
+}
+
+async function saveWeeklyWakeStep({ dateKey, value }) {
+  const weekStart = weeklyPlanWeekStart.value
+  await saveWeeklyPlan(existing => {
+    const current = existing?.wakeSteps || {}
+    const normalized = value.trim()
+    if ((current[dateKey] || '') === normalized) return null
+    const wakeSteps = { ...current }
+    if (normalized) wakeSteps[dateKey] = normalized
+    else delete wakeSteps[dateKey]
+    return { wakeSteps }
+  }, false, weekStart)
+}
+
+async function addWeeklyRestBlock({ dateKey, startTime, activityId }) {
+  const activity = REST_ACTIVITIES.find(option => option.id === activityId)
+  if (!activity) return
+
+  const weekStart = weeklyPlanWeekStart.value
+  const block = { id: uid(), dateKey, startTime, activityId, duration: activity.duration }
+  const added = await saveWeeklyPlan(existing => {
+    if (weekStart !== weeklyPlanWeekStart.value) return null
+    const day = weeklyPlannerDays.value.find(item => item.key === dateKey)
+    if (!day) return null
+    if (hasScheduleConflict(startTime, activity.duration, day.events)) {
+      flash('Время занято или отдых не помещается до 24:00 — выбери другой слот')
+      return null
+    }
+    return { restBlocks: [...(existing?.restBlocks || []), block] }
+  }, false, weekStart)
+  if (added) flash(`${activity.title} добавлен · ${dateKey} в ${startTime}`)
+}
+
+async function removeWeeklyRestBlock(id) {
+  const weekStart = weeklyPlanWeekStart.value
+  const removed = await saveWeeklyPlan(existing => {
+    const current = existing?.restBlocks || []
+    const restBlocks = current.filter(block => block.id !== id)
+    return restBlocks.length === current.length ? null : { restBlocks }
+  }, false, weekStart)
+  if (removed) flash('Отдых удалён из плана')
+}
+
+async function confirmWeeklyPlan() {
+  const weekStart = weeklyPlanWeekStart.value
+  await weeklyPlanWriteQueue
+  if (weekStart !== weeklyPlanWeekStart.value) return
+
+  const record = store.state.records.find(item => item.type === 'weeklyPlan' && item.weekStart === weekStart)
+  if (!isWakePlanComplete(weeklyPlannerDays.value, record?.wakeTimes || {})) {
+    flash('Укажи время подъёма на все семь дней недели')
+    return
+  }
+
+  await saveWeeklyPlan({}, true, weekStart)
+  flash('План подъёма и отдыха на неделю закреплён')
+}
 
 watch(selectedDate,()=>{expandedTodayChains.value=activeTask.value?.chainId?[activeTask.value.chainId]:[]})
 watch(activeTask,(task,previous)=>{if(task?.chainId&&task.chainId!==previous?.chainId)expandedTodayChains.value=[task.chainId]})
@@ -793,6 +1018,8 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
 
         <template v-else-if="view==='today'">
           <div v-if="overdueTasks.length && selectedDate===todayKey" class="overdue-banner card" role="alert"><div><strong>{{overdueTasks.length}} {{pluralize(overdueTasks.length,['незавершённое действие','незавершённых действия','незавершённых действий'])}}</strong><div class="section-meta">Разбери хвост осознанно — ничего не переносится без твоего решения.</div></div><div class="row" style="flex:0"><button type="button" class="ghost-btn" @click="openOverdueTasks">Разобрать</button><button class="primary-btn" @click="openTransfer()">На сегодня</button></div></div>
+          <article v-if="selectedDate===todayKey&&isCurrentSaturday" class="saturday-week-plan card"><div><strong>Суббота — время распланировать следующую неделю</strong><span>{{saturdayNextWeekPlan?.confirmedAt?'План уже закреплён. Можно проверить расписание и отдых.':'Задай подъём на каждый день; первый шаг и отдых добавляй по желанию.'}}</span></div><button type="button" class="ghost-btn" @click="openWeeklyPlanner(nextPlanningWeekStart)">{{saturdayNextWeekPlan?.confirmedAt?'Открыть план':'Планировать неделю'}}</button></article>
+          <article v-if="showTomorrowWakePlan" class="wake-plan-glance card"><div><div class="eyebrow">Завтра · план пробуждения</div><strong :class="{'wake-time-big':tomorrowWakePlan.wakeTime}">{{tomorrowWakePlan.wakeTime?`Подъём в ${tomorrowWakePlan.wakeTime}`:'Время подъёма не задано'}}</strong><span>{{tomorrowWakePlan.firstStep?`Первый шаг: ${tomorrowWakePlan.firstStep}`:'Добавь первый шаг в недельном плане.'}}</span></div><button type="button" class="ghost-btn" @click="openWeeklyPlanner(tomorrowWakePlan.dateKey)">Открыть план недели</button></article>
           <div class="grid-dashboard">
             <section>
               <div class="card hero-card">
@@ -853,6 +1080,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
 
         <template v-else-if="view==='study'">
           <div class="study-hero card"><div><div class="eyebrow">УВП-412 · 1 семестр 2026–2027</div><h2>{{selectedAcademicWeek===1?'Первая':'Вторая'}} неделя</h2><p>{{format(studyWeekStart,'d MMMM',{locale:ru})}} — {{format(addDays(studyWeekStart,6),'d MMMM yyyy',{locale:ru})}}</p></div><div class="study-nav"><button class="icon-btn" aria-label="Предыдущая учебная неделя" @click="changeDay(-7)"><ChevronLeft :size="17"/></button><button class="ghost-btn" @click="selectedDate=todayKey">Текущая</button><button class="icon-btn" aria-label="Следующая учебная неделя" @click="changeDay(7)"><ChevronRight :size="17"/></button></div></div>
+          <WeeklyRoutinePlanner :days="weeklyPlannerDays" :selected-date="selectedDate" :wake-times="weeklyPlanRecord?.wakeTimes||{}" :wake-steps="weeklyPlanRecord?.wakeSteps||{}" :confirmed-at="weeklyPlanRecord?.confirmedAt||null" @wake-time="saveWeeklyWakeTime" @wake-step="saveWeeklyWakeStep" @add-rest-block="addWeeklyRestBlock" @remove-rest-block="removeWeeklyRestBlock" @confirm="confirmWeeklyPlan"/>
           <StudyWeekOverview :summary="studyWeekSummary" :selected-date="selectedDate" :subject-projects="studySubjectProjects" @select-day="selectStudyDay" @open-item="openStudyWeekItem"/>
           <div v-if="upcomingHomework.length" class="study-homework card"><div class="section-head"><div><h2>Ближайшие задания</h2><div class="section-meta">Невыполненные · {{upcomingHomework.length}}</div></div></div><div v-for="item in upcomingHomework.slice(0,6)" :key="item.id" class="homework-row with-plan"><button type="button" class="check" :class="{done:item.done}" :aria-label="`Выполнение задания: ${item.title}`" :aria-pressed="item.done" @click="toggleHomework(item)"><Check v-if="item.done" :size="13" aria-hidden="true"/></button><div @click="openHomework({id:item.lessonId,subject:item.subject,kind:item.lessonKind,room:item.room},item.dueDate,item)"><strong>{{item.title}}</strong><span>{{item.subject}}</span></div><button class="plan-homework-btn" :class="{active:(item.plannedDates||[]).includes(selectedDate)}" @click="toggleHomeworkPlan(item)"><Target :size="12"/> {{(item.plannedDates||[]).includes(selectedDate)?'В плане':'В план'}}</button><span class="homework-due">{{format(parseISO(item.dueDate),'d MMM')}}</span></div></div>
           <div v-if="!isInSemester(selectedDate)" class="card empty">Эта дата находится вне периода семестра: {{format(parseISO(SEMESTER.start),'d MMMM',{locale:ru})}} — {{format(parseISO(SEMESTER.end),'d MMMM yyyy',{locale:ru})}}</div>
@@ -881,7 +1109,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
           <div class="settings-grid">
             <div class="card setting-card"><Cloud :size="21" color="#a78bfa"/><h3 style="margin-top:12px">Синхронизация устройств</h3><p>{{cloud.connected?`Выполнен вход: ${cloud.user?.email}. Последняя синхронизация ${formatSync()}. ${dirtyRecords} локальных изменений ожидают отправки.`:'Подключите бесплатный Supabase, чтобы один план был доступен на iPhone и компьютере.'}}</p><button class="primary-btn" @click="cloudOpen=true">{{cloud.connected?'Управление облаком':'Подключить облако'}}</button></div>
             <div v-if="cloud.conflicts.length" class="card setting-card conflict-card"><AlertCircle :size="21" color="#fb7185"/><h3 style="margin-top:12px">Конфликты между устройствами</h3><p>Ничего не перезаписано автоматически. Выбери версию для каждой записи.</p><div v-for="conflict in cloud.conflicts" :key="conflict.id" class="conflict-row"><span>{{conflict.title}}</span><button @click="resolveCloudConflict(conflict.id,'local')">Эта версия</button><button @click="resolveCloudConflict(conflict.id,'remote')">Облачная</button></div></div>
-            <div class="card setting-card"><Bell :size="21" color="#f59e0b"/><h3 style="margin-top:12px">Уведомления</h3><p>Напоминания о парах, ДЗ и таймерах. Для iPhone приложение должно быть добавлено на экран «Домой».</p><button class="ghost-btn" @click="requestNotifications">{{notificationPermission==='granted'?'Уведомления включены':'Разрешить уведомления'}}</button></div>
+            <div class="card setting-card"><Bell :size="21" color="#f59e0b"/><h3 style="margin-top:12px">Уведомления</h3><p>Напоминания о парах, ДЗ, таймерах и времени подъёма на завтра. Для iPhone приложение должно быть добавлено на экран «Домой».</p><button class="ghost-btn" @click="requestNotifications">{{notificationPermission==='granted'?'Уведомления включены':'Разрешить уведомления'}}</button></div>
             <div class="card setting-card"><Ruler :size="21" color="#22c55e"/><h3 style="margin-top:12px">Самочувствие и измерения</h3><p v-if="latestMeasurements.length">Последняя запись {{format(parseISO(latestMeasurements[0].date),'d MMM',{locale:ru})}} · вес {{latestMeasurements[0].weight||'—'}} кг · сон {{latestMeasurements[0].sleep||'—'}} ч.</p><p v-else>Вес, сон, пульс, энергия и состояние поясницы — ввод занимает меньше минуты.</p><button class="ghost-btn" @click="openMeasurement"><Plus :size="15"/> Записать</button></div>
             <div class="card setting-card"><Clock3 :size="21" color="#a78bfa"/><h3 style="margin-top:12px">План и факт времени</h3><p>{{timeStats.sessions}} фокус-сессий · план {{timeStats.planned}} мин · факт {{timeStats.actual}} мин<span v-if="timeStats.ratio"> · {{timeStats.ratio}}%</span>.</p><button class="ghost-btn" @click="view='today'"><Target :size="15"/> Начать фокус</button></div>
             <div class="card setting-card insight-card"><BarChart3 :size="21" color="#06b6d4"/><h3 style="margin-top:12px">Рабочие выводы</h3><p>Ошибка оценки времени: <strong>{{productivityInsights.estimateError>0?'+':''}}{{productivityInsights.estimateError}}%</strong>. Полностью завершено цепочек: <strong>{{productivityInsights.chainRate}}%</strong>. Переносов: <strong>{{transferStats.count}}</strong>, главная причина — {{transferStats.top}}. В ожидании: {{productivityInsights.waiting}}.</p><small>Это живая аналитика, а не отдельный еженедельный обзор.</small></div>
