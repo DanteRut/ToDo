@@ -19,6 +19,7 @@ import { buildDayTimeline, dayCapacity, freeWindows, fromMinutes, toMinutes, lay
 import { habitValueForDate, habitsForDate, homeworkForDate, tasksForDate, toggleHabitForDate } from './utils/dateContext'
 import { buildStudyWeekSummary } from './utils/studyWeek'
 import { planEveningReviewSave, previousEveningMessage, ritualTaskDate } from './utils/dailyReview'
+import { focusSecondsRemaining, restoreFocusTimer } from './utils/focusTimer'
 import { compareDeadlines, deadlineDateKey, deadlineTone } from './utils/deadlines'
 import { CLASS_SCHEDULE, DAY_NAMES, SEMESTER, academicWeek, classesForDate, isInSemester, nextStudyDate, nextClassOccurrence } from './data/classSchedule'
 import StudyWeekOverview from './components/StudyWeekOverview.vue'
@@ -69,7 +70,7 @@ const ritualTimer = reactive({habit:null,seconds:0,running:false})
 let ritualInterval
 let notificationInterval
 let releasingExpiredChains = false
-const focusSeconds = ref(25*60), focusRunning = ref(false), focusStartedAt = ref(null), focusTaskId = ref(null)
+const focusSeconds = ref(25*60), focusRunning = ref(false), focusStartedAt = ref(null), focusDeadlineAt = ref(null), focusTaskId = ref(null)
 let focusInterval
 const dragTaskId = ref(null), dragChainId = ref(null), dragProjectId = ref(null), projectDropTargetId = ref(null), projectLongPressId = ref(null), expandedPlanChains = ref([]), longPressTaskId = ref(null), longPressChainId = ref(null)
 let longPressTimer
@@ -352,7 +353,7 @@ async function toggleTask(task){
     }
     navigator.vibrate?.(35); flash('Готово. Следующий доступный шаг обновлён')
   }
-  if(done&&task.id===focusTaskId.value){if(focusStartedAt.value)await recordFocusSession('completed');clearInterval(focusInterval);focusRunning.value=false;focusStartedAt.value=null;focusDistractions.value=[];focusTaskId.value=null;focusOpen.value=false;focusMinimized.value=false;localStorage.removeItem('momentum.activeFocus')}
+  if(done&&task.id===focusTaskId.value){clearInterval(focusInterval);focusRunning.value=false;focusDeadlineAt.value=null;if(focusStartedAt.value)await recordFocusSession('completed');focusStartedAt.value=null;focusDistractions.value=[];focusTaskId.value=null;focusOpen.value=false;focusMinimized.value=false;localStorage.removeItem('momentum.activeFocus')}
   syncSoon()
 }
 async function toggleSubtask(task, sub){const done=!sub.done;const subtasks=(task.subtasks||[]).map(s=>s.id===sub.id?{...s,done}:s);await store.save({...task,subtasks});for(const action of store.tasks.value.filter(item=>item.parentTaskId===task.id&&item.sourceSubtaskId===sub.id))await store.save({...action,done,completedAt:done?new Date().toISOString():null});syncSoon()}
@@ -485,17 +486,24 @@ async function confirmTransfer(){
   for(const task of tasks.filter(item=>!item.chainId)){const history=[...(task.transferHistory||[]),{from:task.date,to:todayKey.value,reason:transferReason.value||'Без причины',at:new Date().toISOString()}];await store.save({...task,date:todayKey.value,transferHistory:history})}
   transferOpen.value=false;flash(`${tasks.length} ${pluralize(tasks.length,['действие перенесено','действия перенесены','действий перенесено'])} на сегодня`);syncSoon()
 }
-function persistFocus(){const task=focusedTask.value;if(!task)return;localStorage.setItem('momentum.activeFocus',JSON.stringify({taskId:task.id,seconds:focusSeconds.value,running:focusRunning.value,startedAt:focusStartedAt.value,distractions:focusDistractions.value,minimized:focusMinimized.value,savedAt:Date.now()}))}
-async function recordFocusSession(outcome='stopped'){const task=focusedTask.value;if(!focusStartedAt.value||!task)return;const finishedAt=new Date().toISOString();const actualMinutes=Math.max(1,Math.round((new Date(finishedAt)-new Date(focusStartedAt.value))/60000));await store.add({type:'timeEntry',taskId:task.id,title:task.title,date:task.date||selectedDate.value,startedAt:focusStartedAt.value,finishedAt,actualMinutes,plannedMinutes:task.duration||0,outcome,distractions:[...focusDistractions.value]});focusStartedAt.value=null;focusDistractions.value=[];localStorage.removeItem('momentum.activeFocus');syncSoon()}
+function persistFocus(){const task=focusedTask.value;if(!task||!focusStartedAt.value)return;localStorage.setItem('momentum.activeFocus',JSON.stringify({taskId:task.id,seconds:focusSeconds.value,running:focusRunning.value,startedAt:focusStartedAt.value,deadlineAt:focusDeadlineAt.value,distractions:focusDistractions.value,minimized:focusMinimized.value,savedAt:Date.now()}))}
+async function recordFocusSession(outcome='stopped',finishedAt=new Date().toISOString()){const task=focusedTask.value;if(!focusStartedAt.value||!task){focusStartedAt.value=null;focusDeadlineAt.value=null;focusDistractions.value=[];localStorage.removeItem('momentum.activeFocus');return}const actualMinutes=Math.max(1,Math.round((new Date(finishedAt)-new Date(focusStartedAt.value))/60000));await store.add({type:'timeEntry',taskId:task.id,title:task.title,date:task.date||selectedDate.value,startedAt:focusStartedAt.value,finishedAt,actualMinutes,plannedMinutes:task.duration||0,outcome,distractions:[...focusDistractions.value]});focusStartedAt.value=null;focusDeadlineAt.value=null;focusDistractions.value=[];localStorage.removeItem('momentum.activeFocus');syncSoon()}
+function handleFocusVisibilityChange(){if(document.visibilityState==='visible'){tickFocusTimer();void syncNow().then(()=>checkNotifications())}else persistFocus()}
+function handleFocusWindowFocus(){tickFocusTimer()}
+function handleFocusPageShow(){tickFocusTimer()}
+function handleFocusPageHide(){persistFocus()}
 function logDistraction(type){focusDistractions.value.push({type,at:new Date().toISOString()});persistFocus();navigator.vibrate?.(20);flash(`Отвлечение записано: ${type}`)}
 async function captureFocusInbox(){if(!focusInboxText.value.trim())return;await store.add({type:'inbox',title:focusInboxText.value.trim(),createdAt:new Date().toISOString(),processed:false});focusInboxText.value='';flash('Мысль убрана во Входящие')}
-function startFocus({showOverlay=true}={}){if(!focusTaskId.value||!store.tasks.value.some(task=>task.id===focusTaskId.value))focusTaskId.value=activeTask.value?.id||null;const task=focusedTask.value;if(!task)return;if(showOverlay){focusOpen.value=true;focusMinimized.value=false}if(focusSeconds.value<=0)focusSeconds.value=Math.max(5,(Number(task.duration)||25))*60;prepareTimerSound();focusRunning.value=true;if(!focusStartedAt.value)focusStartedAt.value=new Date().toISOString();clearInterval(focusInterval);persistFocus();focusInterval=setInterval(async()=>{if(focusSeconds.value>0){focusSeconds.value--;if(focusSeconds.value%5===0)persistFocus()}else{focusRunning.value=false;clearInterval(focusInterval);await recordFocusSession('timer');playTimerSound();navigator.vibrate?.([200,100,200]);flash('Фокус-блок завершён')}},1000)}
-function toggleFocusTimer(){if(focusRunning.value){clearInterval(focusInterval);focusRunning.value=false;persistFocus()}else startFocus({showOverlay:!focusMinimized.value})}
-function resetFocus(){clearInterval(focusInterval);focusRunning.value=false;focusStartedAt.value=null;localStorage.removeItem('momentum.activeFocus');focusSeconds.value=Math.max(5,(focusedTask.value?.duration||25))*60}
+function tickFocusTimer(){if(!focusRunning.value||focusDeadlineAt.value===null)return;focusSeconds.value=focusSecondsRemaining(focusDeadlineAt.value,Date.now());if(focusSeconds.value===0){void completeFocusTimer(focusDeadlineAt.value);return}if(focusSeconds.value%5===0)persistFocus()}
+function startFocusTicker(){clearInterval(focusInterval);tickFocusTimer();if(focusRunning.value)focusInterval=setInterval(tickFocusTimer,1000)}
+async function completeFocusTimer(deadlineAt=focusDeadlineAt.value){clearInterval(focusInterval);focusRunning.value=false;focusSeconds.value=0;focusDeadlineAt.value=null;const finishedAt=deadlineAt!==null&&Number.isFinite(Number(deadlineAt))?new Date(Number(deadlineAt)).toISOString():new Date().toISOString();await recordFocusSession('timer',finishedAt);playTimerSound();navigator.vibrate?.([200,100,200]);flash('Фокус-блок завершён')}
+function startFocus({showOverlay=true}={}){if(!focusTaskId.value||!store.tasks.value.some(task=>task.id===focusTaskId.value))focusTaskId.value=activeTask.value?.id||null;const task=focusedTask.value;if(!task)return;if(showOverlay){focusOpen.value=true;focusMinimized.value=false}if(focusSeconds.value<=0)focusSeconds.value=Math.max(5,(Number(task.duration)||25))*60;prepareTimerSound();if(!focusStartedAt.value)focusStartedAt.value=new Date().toISOString();focusDeadlineAt.value=Date.now()+focusSeconds.value*1000;focusRunning.value=true;persistFocus();startFocusTicker()}
+function toggleFocusTimer(){if(focusRunning.value){tickFocusTimer();if(!focusRunning.value)return;clearInterval(focusInterval);focusRunning.value=false;focusDeadlineAt.value=null;persistFocus()}else startFocus({showOverlay:!focusMinimized.value})}
+function resetFocus(){clearInterval(focusInterval);focusRunning.value=false;focusStartedAt.value=null;focusDeadlineAt.value=null;localStorage.removeItem('momentum.activeFocus');focusSeconds.value=Math.max(5,(focusedTask.value?.duration||25))*60}
 function launchFocusMode(){if(focusMinimized.value&&focusedTask.value){restoreFocusMode();return}focusTaskId.value=activeTask.value?.id||null;focusMinimized.value=false;resetFocus();startFocus()}
 function minimizeFocusMode(){focusOpen.value=false;focusMinimized.value=true;persistFocus()}
 function restoreFocusMode(){focusMinimized.value=false;focusOpen.value=true;persistFocus()}
-async function finishFocusedTask(){const task=focusedTask.value;if(!task)return;const wasMinimized=focusMinimized.value;await recordFocusSession('completed');await toggleTask(task);clearInterval(focusInterval);focusRunning.value=false;focusStartedAt.value=null;focusDistractions.value=[];localStorage.removeItem('momentum.activeFocus');focusTaskId.value=null;setTimeout(()=>{const nextTask=activeTask.value;if(nextTask){focusTaskId.value=nextTask.id;focusSeconds.value=Math.max(5,(nextTask.duration||25))*60;focusMinimized.value=wasMinimized;focusOpen.value=!wasMinimized;flash(`Следующий шаг: ${nextTask.title}`)}else{focusOpen.value=false;focusMinimized.value=false}},0)}
+async function finishFocusedTask(){const task=focusedTask.value;if(!task)return;const wasMinimized=focusMinimized.value;clearInterval(focusInterval);focusRunning.value=false;focusDeadlineAt.value=null;await recordFocusSession('completed');await toggleTask(task);focusStartedAt.value=null;focusDistractions.value=[];localStorage.removeItem('momentum.activeFocus');focusTaskId.value=null;setTimeout(()=>{const nextTask=activeTask.value;if(nextTask){focusTaskId.value=nextTask.id;focusSeconds.value=Math.max(5,(nextTask.duration||25))*60;focusMinimized.value=wasMinimized;focusOpen.value=!wasMinimized;flash(`Следующий шаг: ${nextTask.title}`)}else{focusOpen.value=false;focusMinimized.value=false}},0)}
 function openFocusPicker(){focusPickerOpen.value=true}
 async function selectDayFocus(task){
   if(focusRecord.value)await store.save({...focusRecord.value,taskId:task.id})
@@ -719,13 +727,39 @@ function uninstallDialogAccessibility(){
 }
 
 onMounted(async()=>{installDialogAccessibility();applyTheme(currentTheme.value);await store.init();await initCloud();await loadBackups();const savedChainDraft=JSON.parse(localStorage.getItem('momentum.chainBuilderDraft')||'null');chainDraftAvailable.value=Boolean(savedChainDraft);
-  const focusDraft=JSON.parse(localStorage.getItem('momentum.activeFocus')||'null');if(focusDraft){const draftTask=store.tasks.value.find(task=>task.id===focusDraft.taskId),focusDate=draftTask?.date||selectedDate.value,record=store.state.records.find(item=>item.type==='dayFocus'&&item.date===focusDate),validTask=draftTask&&!draftTask.done&&!['someday','waiting','cancelled','archived'].includes(draftTask.status);if(validTask&&(!record||record.taskId===draftTask.id)){const savedAt=Number(focusDraft.savedAt)||Date.now(),elapsed=focusDraft.running?Math.max(0,Math.floor((Date.now()-savedAt)/1000)):0;focusTaskId.value=draftTask.id;focusSeconds.value=Math.max(0,(Number(focusDraft.seconds)||0)-elapsed);focusStartedAt.value=focusDraft.startedAt;focusDistractions.value=focusDraft.distractions||[];focusMinimized.value=Boolean(focusDraft.minimized);focusOpen.value=!focusMinimized.value;if(!record)await store.add({type:'dayFocus',date:focusDate,taskId:draftTask.id})}else{focusTaskId.value=null;focusMinimized.value=false;localStorage.removeItem('momentum.activeFocus')}}
+  const focusDraft=JSON.parse(localStorage.getItem('momentum.activeFocus')||'null')
+  if(focusDraft){
+    const draftTask=store.tasks.value.find(task=>task.id===focusDraft.taskId)
+    const focusDate=draftTask?.date||selectedDate.value
+    const record=store.state.records.find(item=>item.type==='dayFocus'&&item.date===focusDate)
+    const validTask=draftTask&&!draftTask.done&&!['someday','waiting','cancelled','archived'].includes(draftTask.status)
+    if(validTask&&(!record||record.taskId===draftTask.id)){
+      const restored=restoreFocusTimer(focusDraft,Date.now())
+      focusTaskId.value=draftTask.id
+      focusSeconds.value=restored.seconds
+      focusRunning.value=restored.running
+      focusStartedAt.value=focusDraft.startedAt||null
+      focusDeadlineAt.value=restored.deadlineAt
+      focusDistractions.value=Array.isArray(focusDraft.distractions)?focusDraft.distractions:[]
+      focusMinimized.value=Boolean(focusDraft.minimized)
+      focusOpen.value=!focusMinimized.value
+      if(!record)await store.add({type:'dayFocus',date:focusDate,taskId:draftTask.id})
+      if(restored.expired)void completeFocusTimer(restored.deadlineAt)
+      else if(restored.running){persistFocus();startFocusTicker()}
+    }else{
+      focusTaskId.value=null
+      focusRunning.value=false
+      focusDeadlineAt.value=null
+      focusMinimized.value=false
+      localStorage.removeItem('momentum.activeFocus')
+    }
+  }
   const workoutDraft=JSON.parse(localStorage.getItem('momentum.workoutDraft')||'null');if(workoutDraft){selectedWorkout.value=workoutDraft;workoutOpen.value=true;flash('Незавершённая тренировка восстановлена')}
   const homeworkDraft=JSON.parse(localStorage.getItem('momentum.homeworkDraft')||'null');if(homeworkDraft){editingHomework.value=homeworkDraft;homeworkOpen.value=true}
   const hour=new Date().getHours();const reviewDue=hour>=19?!todayReview.value?.eveningAt:!todayReview.value?.morningAt;if(selectedDate.value===todayKey.value&&reviewDue&&!workoutDraft&&!homeworkDraft)setTimeout(()=>openReview(hour>=19?'evening':'morning'),500)
   checkNotifications();notificationInterval=setInterval(checkNotifications,60000)
-  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void syncNow().then(()=>checkNotifications())});window.addEventListener('momentum:update-ready',()=>{updateAvailable.value=true;toast.value='Доступна новая версия'});window.addEventListener('momentum:offline-ready',()=>flash('Приложение готово к работе без сети'))})
-onBeforeUnmount(()=>{uninstallDialogAccessibility();clearInterval(timerInterval);clearInterval(focusInterval);clearInterval(ritualInterval);clearInterval(notificationInterval);clearTimeout(syncTimer)})
+  document.addEventListener('visibilitychange',handleFocusVisibilityChange);window.addEventListener('focus',handleFocusWindowFocus);window.addEventListener('pageshow',handleFocusPageShow);window.addEventListener('pagehide',handleFocusPageHide);window.addEventListener('momentum:update-ready',()=>{updateAvailable.value=true;toast.value='Доступна новая версия'});window.addEventListener('momentum:offline-ready',()=>flash('Приложение готово к работе без сети'))})
+onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.removeEventListener('visibilitychange',handleFocusVisibilityChange);window.removeEventListener('focus',handleFocusWindowFocus);window.removeEventListener('pageshow',handleFocusPageShow);window.removeEventListener('pagehide',handleFocusPageHide);clearInterval(timerInterval);clearInterval(focusInterval);clearInterval(ritualInterval);clearInterval(notificationInterval);clearTimeout(syncTimer)})
 </script>
 
 <template>
