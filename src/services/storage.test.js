@@ -60,6 +60,23 @@ describe('storage', () => {
     expect(backups.some(backup => backup.records.some(record => record.id === 'legacy-prepare' && record.stage === 'prepare'))).toBe(true)
   })
 
+  it('does not overwrite custom preparation steps while initializing templates', async () => {
+    const preparations = [{ id: 'custom-step', title: 'My preparation', duration: 17 }]
+    await db.records.put({
+      id: 'custom-template',
+      type: 'chainTemplate',
+      title: 'My chain',
+      preparations,
+      updatedAt: '2026-10-01T10:00:00.000Z',
+      dirty: 0,
+      deleted: 0
+    })
+
+    await store.init()
+
+    expect(await db.records.get('custom-template')).toMatchObject({ preparations })
+  })
+
   it('restores default preparation steps on built-in templates from the previous migration', async () => {
     const updatedAt = '2026-10-01T10:00:00.000Z'
     await db.records.put({ id: 'builtin-template', type: 'chainTemplate', title: 'Глубокая работа', color: '#8b5cf6', icon: 'briefcase', updatedAt, dirty: 1, deleted: 0 })
@@ -110,7 +127,7 @@ describe('storage', () => {
     await store.reload()
 
     expect(await store.releaseExpiredChainTasks('2026-10-01')).toBe(4)
-    for (const id of ['expired', 'waiting', 'someday', 'preparation']) {
+    for (const id of ['expired', 'waiting', 'someday']) {
       const task = await db.records.get(id)
       expect(task).toMatchObject({
         chainId: null,
@@ -122,6 +139,15 @@ describe('storage', () => {
         done: false
       })
     }
+    expect(await db.records.get('preparation')).toMatchObject({
+      chainId: null,
+      releasedFromChainIds: ['chain-old'],
+      date: '2026-09-30',
+      startTime: '',
+      stage: 'prepare',
+      status: 'planned',
+      done: false
+    })
     for (const id of ['today', 'done', 'cancelled']) {
       expect(await db.records.get(id)).toMatchObject({ chainId: null, releasedFromChainIds: ['chain-old'] })
     }

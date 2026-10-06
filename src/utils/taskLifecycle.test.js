@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { expiredChainTasks, releaseAsFreeOverdueTask } from './taskLifecycle'
+import { closeChainMembers, expiredChainTasks, releaseAsFreeOverdueTask } from './taskLifecycle'
 
 describe('chain task lifecycle', () => {
   it('selects unfinished actions and preparations only after their chain date has passed', () => {
@@ -20,6 +20,81 @@ describe('chain task lifecycle', () => {
 
     expect(expiredChainTasks(tasks, '2026-10-01').map(task => task.id)).toEqual(['expired', 'waiting', 'someday', 'legacy-prepare'])
     expect(expiredChainTasks(tasks, 'not-a-date')).toEqual([])
+  })
+
+  it('preserves the preparation stage when releasing an overdue task', () => {
+    expect(releaseAsFreeOverdueTask({ id: 'prep', chainId: 'chain-a', stage: 'prepare', date: '2026-09-30' }))
+      .toMatchObject({ id: 'prep', chainId: null, stage: 'prepare', date: '2026-09-30', startTime: '' })
+  })
+
+  it('closes a template-based chain without archiving reusable preparation steps', () => {
+    const tasks = [
+      { id: 'template-prep', chainId: 'template-chain', templatePreparationId: 'step-1', title: 'Get ready', duration: 5, stage: 'prepare', status: 'planned', done: false },
+      { id: 'legacy-template-prep', chainId: 'template-chain', title: 'Read notes', duration: 10, stage: 'prepare', status: 'planned', done: false },
+      { id: 'manual-prep', chainId: 'template-chain', title: 'Add a note', duration: 3, stage: 'prepare', status: 'planned', done: false },
+      { id: 'action', chainId: 'template-chain', stage: 'action', status: 'planned', done: false },
+      { id: 'archived-action', chainId: 'template-chain', stage: 'action', status: 'archived', done: false },
+      { id: 'unrelated', chainId: 'another-chain', stage: 'action', status: 'planned', done: false }
+    ]
+    const template = {
+      id: 'template-1',
+      preparations: [
+        { id: 'step-1', title: 'Get ready', duration: 5 },
+        { id: 'step-2', title: 'Read notes', duration: 10 }
+      ]
+    }
+
+    const result = closeChainMembers(tasks, 'template-chain', template)
+
+    expect(result.discardedPreparationIds).toEqual(['template-prep', 'legacy-template-prep'])
+    expect(result.releasedTasks).toEqual([
+      {
+        id: 'manual-prep',
+        chainId: null,
+        title: 'Add a note',
+        duration: 3,
+        stage: 'prepare',
+        status: 'planned',
+        done: false,
+        releasedFromChainIds: ['template-chain']
+      },
+      {
+        id: 'action',
+        chainId: null,
+        stage: 'action',
+        status: 'planned',
+        done: false,
+        releasedFromChainIds: ['template-chain']
+      },
+      {
+        id: 'archived-action',
+        chainId: null,
+        stage: 'action',
+        status: 'planned',
+        done: false,
+        archivedAt: null,
+        releasedFromChainIds: ['template-chain']
+      }
+    ])
+    expect(tasks[0].chainId).toBe('template-chain')
+    expect(template.preparations).toEqual([
+      { id: 'step-1', title: 'Get ready', duration: 5 },
+      { id: 'step-2', title: 'Read notes', duration: 10 }
+    ])
+  })
+
+  it('keeps manually created preparation tasks as free tasks when there is no reusable template', () => {
+    const result = closeChainMembers([
+      { id: 'manual-prep', chainId: 'manual-chain', stage: 'prepare', status: 'planned', done: false }
+    ], 'manual-chain')
+
+    expect(result.discardedPreparationIds).toEqual([])
+    expect(result.releasedTasks[0]).toMatchObject({
+      id: 'manual-prep',
+      chainId: null,
+      stage: 'prepare',
+      releasedFromChainIds: ['manual-chain']
+    })
   })
 
   it('releases the task without changing its overdue date and restores plan-eligible status', () => {
