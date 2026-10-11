@@ -95,6 +95,7 @@ export const store = {
   chains: computed(() => state.records.filter(r => r.type === 'chain' && r.status !== 'archived')),
   chainTemplates: computed(() => state.records.filter(r => r.type === 'chainTemplate').sort((a,b) => (a.order || 0) - (b.order || 0))),
   habits: computed(() => state.records.filter(r => r.type === 'habit').sort((a,b) => a.order-b.order)),
+  prohibitions: computed(() => state.records.filter(r => r.type === 'prohibition').sort((a,b) => (a.order || 0) - (b.order || 0))),
   async deduplicateBuiltInHabits() {
     const records = await db.records.where('type').equals('habit').toArray()
     const groups = new Map()

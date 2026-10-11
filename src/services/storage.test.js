@@ -219,6 +219,14 @@ describe('storage', () => {
     expect(await db.records.get(task.id)).toMatchObject({ title: 'Archive me', status: 'archived' })
   })
 
+  it('exposes prohibition rules as a separate reactive collection', async () => {
+    const habit = await store.add({ type: 'habit', title: 'Drink water', kind: 'trackable', order: 1 })
+    const prohibition = await store.add({ type: 'prohibition', title: 'No phone in bed', order: 1 })
+
+    expect(store.habits.value.map(record => record.id)).toEqual([habit.id])
+    expect(store.prohibitions.value.map(record => record.id)).toEqual([prohibition.id])
+  })
+
   it('persists a homework record and exposes it through the reactive collection', async () => {
     const saved = await store.add({
       id: null, // New Vue forms use a null placeholder until persistence.
