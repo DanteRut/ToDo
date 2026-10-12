@@ -46,6 +46,35 @@ export function computeChainTimes(steps, startTime) {
   })
 }
 
+export function currentTimeOfDay(now = new Date()) {
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+}
+
+export function buildChainSchedulePreview({ date, requested, duration, blocks = [] }) {
+  const start = Number(requested)
+  const length = Math.max(0, Number(duration) || 0)
+  const validBlocks = blocks.filter(block => Number.isFinite(block.start) && Number.isFinite(block.end) && block.end > block.start)
+  const conflicts = validBlocks.filter(block => start < block.end && start + length > block.start)
+  let suggested = start
+  let nextConflict
+  while ((nextConflict = validBlocks.find(block => suggested < block.end && suggested + length > block.start))) {
+    suggested = nextConflict.end
+  }
+  return {
+    date,
+    requested: start,
+    duration: length,
+    suggested,
+    end: suggested + length,
+    conflicts,
+    classConflicts: conflicts.filter(block => block.type === 'class')
+  }
+}
+
+export function chainScheduleStart(preview, useRequestedTime = false) {
+  return useRequestedTime ? preview.requested : preview.suggested
+}
+
 export function pluralize(number, forms) {
   const n = Math.abs(number) % 100
   const n1 = n % 10
