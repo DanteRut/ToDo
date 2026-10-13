@@ -28,7 +28,7 @@ describe('evening ritual date correction', () => {
   })
 
   it('keeps the next day’s morning review while moving its evening review back', () => {
-    const source = { id: 'next-day', type: 'dailyReview', date: '2026-10-03', morningAt: '2026-10-03T08:00:00Z', mainResult: 'Экзамен', gratitude: 'Друзья', selectedSubtasks: ['task:1'], eveningAt: '2026-10-03T00:15:00Z', lessons: 'Старый урок', tomorrowMessage: 'Старое напутствие' }
+    const source = { id: 'next-day', type: 'dailyReview', date: '2026-10-03', morningAt: '2026-10-03T08:00:00Z', mainResult: 'Экзамен', gratitude: 'Друзья', selectedSubtasks: ['task:1'], wakeTime: '07:15', workEndTime: '19:00', sleepTime: '23:00', eveningAt: '2026-10-03T00:15:00Z', lessons: 'Старый урок', tomorrowMessage: 'Старое напутствие' }
     const operations = planEveningReviewSave([source], source, fields)
 
     expect(operations).toHaveLength(2)
@@ -44,7 +44,7 @@ describe('evening ritual date correction', () => {
       tomorrowMessage: '',
       tomorrowFirst: ''
     } })
-    expect(operations[1].record).toMatchObject({ morningAt: source.morningAt, mainResult: source.mainResult, gratitude: source.gratitude, selectedSubtasks: source.selectedSubtasks })
+    expect(operations[1].record).toMatchObject({ morningAt: source.morningAt, mainResult: source.mainResult, gratitude: source.gratitude, selectedSubtasks: source.selectedSubtasks, wakeTime: source.wakeTime, workEndTime: source.workEndTime, sleepTime: source.sleepTime })
   })
 
   it('moves a record in place when it contains no morning review and avoids creating a duplicate', () => {

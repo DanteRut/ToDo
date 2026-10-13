@@ -14,6 +14,7 @@ import './productivity3.css'
 import './task-projects.css'
 import './project-moves.css'
 import './weekly-planner.css'
+import './day-calendar.css'
 
 document.documentElement.dataset.theme = localStorage.getItem('momentum.theme') || 'midnight'
 
