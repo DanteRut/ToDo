@@ -28,3 +28,17 @@
 .project-completion-control small{color:var(--muted);font-size:8px;line-height:1.4}
 .project-completion-control button{flex:0 0 auto;min-height:34px}
 @media(max-width:430px){.project-completion-control{align-items:flex-start;flex-direction:column}.project-completion-control button{width:100%;justify-content:center}}
+
+/* Keep project and subproject cards visible in a wrapping grid instead of a horizontal scroller. */
+.project-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,238px),1fr));align-items:stretch;gap:10px;overflow:visible;padding-bottom:12px}
+.project-card-item{flex:none;min-width:0;width:100%}
+.project-card.subproject-card{transform:none}
+.project-empty.project-list-empty{width:100%;min-width:0;min-height:64px;cursor:default}
+.project-modal-task-action{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0;padding:11px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--panel2) 75%,transparent)}
+.project-modal-task-action>div{display:grid;gap:3px;min-width:0}
+.project-modal-task-action strong{font-size:10px}
+.project-modal-task-action small{color:var(--muted);font-size:8px;line-height:1.4}
+.project-modal-task-action button{flex:0 0 auto;min-height:34px}
+.project-modal-task-action button:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:430px){.project-modal-task-action{align-items:flex-start;flex-direction:column}.project-modal-task-action button{width:100%;justify-content:center}}
+.project-strip>.project-empty{width:100%;min-width:0;min-height:64px}
