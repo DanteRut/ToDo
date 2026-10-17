@@ -45,7 +45,7 @@ export function buildStudyWeekSummary({ weekStart, tasks = [], homeworks = [], h
       sourceTask: record,
       record
     }))
-  ].sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.title.localeCompare(b.title, 'ru'))
+  ].filter(item => !item.done).sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.title.localeCompare(b.title, 'ru'))
 
   const daySummaries = days.map(date => {
     const dateKey = format(date, 'yyyy-MM-dd')

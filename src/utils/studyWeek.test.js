@@ -71,6 +71,19 @@ describe('study week summary', () => {
     })
   })
 
+  it('removes completed control points from the active weekly due list while retaining progress totals', () => {
+    const summary = buildStudyWeekSummary({
+      weekStart: parseISO(MONDAY),
+      tasks: [
+        { id: 'done-exam', title: 'Сданный экзамен', date: MONDAY, dueDate: TUESDAY, done: true, status: 'completed', deadlineKind: 'Экзамен' },
+        { id: 'open-lab', title: 'Текущая лабораторная', date: MONDAY, dueDate: WEDNESDAY, done: false, status: 'planned', deadlineKind: 'Лабораторная' }
+      ]
+    })
+
+    expect(summary).toMatchObject({ taskCount: 2, completedTaskCount: 1, deadlineCount: 1 })
+    expect(summary.dueItems.map(item => item.title)).toEqual(['Текущая лабораторная'])
+  })
+
   it('keeps linked project milestones directly completable without duplicating the homework row', () => {
     const prerequisite = { id: 'prerequisite', title: 'Подготовить материалы', date: MONDAY, done: false }
     const linkedMilestone = {
