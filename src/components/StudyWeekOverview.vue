@@ -8,7 +8,7 @@ const props = defineProps({
   selectedDate: { type: String, required: true },
   subjectProjects: { type: Array, default: () => [] }
 })
-const emit = defineEmits(['select-day', 'open-item'])
+const emit = defineEmits(['select-day', 'open-item', 'toggle-task'])
 const shortDate = dateKey => format(parseISO(dateKey), 'd MMM', { locale: ru })
 const formatHours = minutes => `${Math.round(minutes / 60 * 10) / 10} ч`
 </script>
@@ -51,12 +51,17 @@ const formatHours = minutes => `${Math.round(minutes / 60 * 10) / 10} ч`
     <div class="study-week-lower">
       <section class="study-week-due" aria-label="Задания со сроком на этой неделе">
         <div class="study-week-section-title"><strong>Сдать на этой неделе</strong><span>{{summary.dueItems.length}}</span></div>
-        <button v-for="item in summary.dueItems.slice(0,6)" :key="item.key" type="button" class="study-week-due-item" :class="{done:item.done}" @click="emit('open-item',item)">
+        <article v-for="item in summary.dueItems.slice(0,6)" :key="item.key" class="study-week-due-item" :class="{done:item.done}">
           <time :datetime="item.dateKey">{{shortDate(item.dateKey)}}</time>
-          <span><strong>{{item.title}}</strong><small>{{item.kindLabel}} · {{item.detail}}</small></span>
-          <Check v-if="item.done" :size="14" aria-label="Выполнено"/>
-          <ArrowRight v-else :size="14" aria-hidden="true"/>
-        </button>
+          <button type="button" class="study-week-due-open" @click="emit('open-item',item)">
+            <span><strong>{{item.title}}</strong><small>{{item.kindLabel}} · {{item.detail}}</small></span>
+            <ArrowRight :size="14" aria-hidden="true"/>
+          </button>
+          <button v-if="item.kind==='task'||item.sourceTask" type="button" class="study-week-due-toggle" :class="{completed:item.done}" :aria-label="item.done?`Вернуть ${item.sourceTask?.deadlineKind?'контрольную точку':'задачу'} в план: ${item.title}`:`Отметить ${item.sourceTask?.deadlineKind?'контрольную точку':'задачу'} выполненной: ${item.title}`" :aria-pressed="item.done" :disabled="!item.done&&item.blocked" :title="!item.done&&item.blocked?'Сначала заверши связанные действия':item.done?'Вернуть в план':'Отметить выполненной'" @click="emit('toggle-task',item.sourceTask||item.record)">
+            <Check v-if="item.done" :size="14" aria-hidden="true"/><span v-else class="study-week-empty-check" aria-hidden="true"></span>
+          </button>
+          <span v-else class="study-week-due-spacer" aria-hidden="true"></span>
+        </article>
         <p v-if="!summary.dueItems.length" class="study-week-empty">На этой неделе пока нет ДЗ или контрольных точек со сроком.</p>
         <p v-else-if="summary.dueItems.length>6" class="study-week-more">Показаны ближайшие 6 из {{summary.dueItems.length}}</p>
       </section>
@@ -102,14 +107,22 @@ const formatHours = minutes => `${Math.round(minutes / 60 * 10) / 10} ч`
 .study-week-section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
 .study-week-section-title strong{font-size:9px}
 .study-week-section-title>span{min-width:18px;padding:3px 5px;border-radius:6px;background:var(--panel2);color:var(--muted);font-size:7px;text-align:center}
-.study-week-due-item{display:grid;grid-template-columns:42px minmax(0,1fr) 15px;gap:7px;align-items:center;width:100%;padding:7px 0;border:0;border-top:1px solid var(--line);background:transparent;color:inherit;text-align:left;cursor:pointer}
+.study-week-due-item{display:grid;grid-template-columns:42px minmax(0,1fr) 30px;gap:7px;align-items:center;width:100%;padding:7px 0;border:0;border-top:1px solid var(--line);background:transparent;color:inherit;text-align:left}
 .study-week-due-item:hover{color:var(--purple2)}
 .study-week-due-item time{color:var(--purple2);font-size:8px;white-space:nowrap}
-.study-week-due-item>span{display:grid;gap:2px;min-width:0}
-.study-week-due-item strong,.study-week-due-item small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.study-week-due-item strong{font-size:8px}
-.study-week-due-item small{color:var(--muted);font-size:7px}
-.study-week-due-item>svg{color:var(--muted)}
+.study-week-due-open{display:flex;align-items:center;justify-content:space-between;gap:7px;min-width:0;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}
+.study-week-due-open>span{display:grid;gap:2px;min-width:0}
+.study-week-due-open strong,.study-week-due-open small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.study-week-due-open strong{font-size:8px}
+.study-week-due-open small{color:var(--muted);font-size:7px}
+.study-week-due-open>svg{flex:0 0 auto;color:var(--muted)}
+.study-week-due-open:focus-visible,.study-week-due-toggle:focus-visible{outline:2px solid var(--purple);outline-offset:2px;border-radius:5px}
+.study-week-due-toggle{display:grid;place-items:center;width:28px;height:28px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);cursor:pointer;transition:color .15s,border-color .15s,background .15s}
+.study-week-due-toggle:hover{border-color:var(--purple);color:var(--purple2)}
+.study-week-due-toggle.completed{border-color:#16815f;background:#123b2f;color:#a7f3d0}
+.study-week-due-toggle:disabled{opacity:.45;cursor:not-allowed}
+.study-week-empty-check{width:12px;height:12px;border:1.5px solid currentColor;border-radius:4px}
+.study-week-due-spacer{width:28px;height:28px}
 .study-week-due-item.done{opacity:.62}
 .study-week-due-item.done strong{text-decoration:line-through}
 .study-week-empty,.study-week-more{margin:10px 0 2px;color:var(--muted);font-size:8px;line-height:1.45}

@@ -3,8 +3,8 @@
 .project-card-item>.project-card>span,.project-card-item>.project-card>strong{padding-right:48px}
 .project-card-item.project-dragging{opacity:.45}
 .project-card-item.project-drop-target>.project-card{outline:2px dashed var(--project);outline-offset:2px;box-shadow:0 0 0 3px color-mix(in srgb,var(--project) 17%,transparent)}
-.project-card-item>.project-task-add{display:flex;align-items:center;justify-content:center;gap:5px;min-height:30px;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);font-size:9px;font-weight:650;cursor:pointer;transition:color .15s,border-color .15s,background .15s}
-.project-card-item>.project-task-add:hover,.project-card-item>.project-task-add:focus-visible{border-color:var(--project);background:color-mix(in srgb,var(--project) 10%,var(--panel));color:var(--text);outline:0}
+.project-card-actions>.project-task-add{display:flex;align-items:center;justify-content:center;gap:5px;min-height:30px;padding:5px 8px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);font-size:9px;font-weight:650;cursor:pointer;transition:color .15s,border-color .15s,background .15s}
+.project-card-actions>.project-task-add:hover,.project-card-actions>.project-task-add:focus-visible{border-color:var(--project);background:color-mix(in srgb,var(--project) 10%,var(--panel));color:var(--text);outline:0}
 .project-drag-handle{position:absolute;z-index:2;top:8px;right:39px;width:25px;height:25px;padding:0;display:grid;place-items:center;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--muted);cursor:grab;touch-action:none;user-select:none}
 .project-drag-handle:hover,.project-drag-handle:focus-visible{color:var(--project);border-color:var(--project);outline:2px solid color-mix(in srgb,var(--project) 28%,transparent);outline-offset:1px}
 .project-drag-handle:active{cursor:grabbing}
@@ -14,3 +14,17 @@
 @media(max-width:820px){.project-card-item{flex-basis:195px;min-width:195px}}
 @media(max-width:700px){.project-card-item>.project-card{padding:12px}.project-drag-handle{top:7px;right:35px;width:24px;height:24px}.today-task-chain-select{max-width:155px}}
 @media(max-width:430px){.project-card-item{flex-basis:178px;min-width:178px}.today-task-chain-select{max-width:140px}}
+
+.project-card-actions{display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:5px;align-items:stretch}
+.project-completion-toggle{display:grid;place-items:center;width:34px;min-height:30px;padding:0;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--muted);cursor:pointer;transition:color .15s,border-color .15s,background .15s}
+.project-completion-toggle:hover,.project-completion-toggle:focus-visible{border-color:var(--project);color:var(--project);outline:2px solid color-mix(in srgb,var(--project) 25%,transparent);outline-offset:1px}
+.project-completion-toggle.completed,.project-completion-control button.completed{border-color:#16815f;background:#123b2f;color:#a7f3d0}
+.project-empty-check{width:13px;height:13px;border:1.5px solid currentColor;border-radius:4px}
+.project-card-completed-badge{display:inline-flex!important;padding-right:6px!important;align-items:center;gap:4px;width:max-content;margin-top:8px;padding:3px 6px;border:1px solid #16815f;border-radius:99px;background:#123b2f;color:#a7f3d0!important;font-size:8px!important;font-weight:700}
+.project-card.completed{border-color:#16815f}
+.project-completion-control{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px;margin-top:2px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--panel2) 75%,transparent)}
+.project-completion-control>span{display:grid;gap:3px;min-width:0}
+.project-completion-control strong{font-size:10px}
+.project-completion-control small{color:var(--muted);font-size:8px;line-height:1.4}
+.project-completion-control button{flex:0 0 auto;min-height:34px}
+@media(max-width:430px){.project-completion-control{align-items:flex-start;flex-direction:column}.project-completion-control button{width:100%;justify-content:center}}

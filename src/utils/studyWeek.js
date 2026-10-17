@@ -2,6 +2,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { dayCapacity } from './dayPlan'
 import { habitsForDate, habitValueForDate } from './dateContext'
+import { isBlocked } from './planner'
 
 const isWithin = (dateKey, startKey, endKey) => typeof dateKey === 'string' && dateKey >= startKey && dateKey <= endKey
 const isExcluded = record => ['cancelled', 'archived', 'someday', 'waiting'].includes(record.status)
@@ -15,17 +16,23 @@ export function buildStudyWeekSummary({ weekStart, tasks = [], homeworks = [], h
   const weekHomework = homeworks.filter(item => isWithin(item.dueDate, startKey, endKey))
   const weekDeadlines = tasks.filter(task => !['cancelled', 'archived'].includes(task.status) && task.deadlineKind && isWithin(task.dueDate, startKey, endKey))
   const mappedHomeworkTaskIds = new Set(weekHomework.map(item => item.sourceTaskId).filter(Boolean))
+  const tasksById = new Map(tasks.map(task => [task.id, task]))
   const dueItems = [
-    ...weekHomework.map(record => ({
-      key: `homework:${record.id}`,
-      kind: 'homework',
-      kindLabel: 'ДЗ',
-      title: record.title,
-      detail: record.subject || record.lessonKind || 'Домашнее задание',
-      dateKey: record.dueDate,
-      done: Boolean(record.done),
-      record
-    })),
+    ...weekHomework.map(record => {
+      const sourceTask = tasksById.get(record.sourceTaskId) || null
+      return {
+        key: `homework:${record.id}`,
+        kind: 'homework',
+        kindLabel: 'ДЗ',
+        title: record.title,
+        detail: record.subject || record.lessonKind || 'Домашнее задание',
+        dateKey: record.dueDate,
+        done: sourceTask ? Boolean(sourceTask.done) : Boolean(record.done),
+        blocked: sourceTask ? isBlocked(sourceTask, tasks) : false,
+        sourceTask,
+        record
+      }
+    }),
     ...weekDeadlines.filter(task => !mappedHomeworkTaskIds.has(task.id)).map(record => ({
       key: `task:${record.id}`,
       kind: 'task',
@@ -34,6 +41,8 @@ export function buildStudyWeekSummary({ weekStart, tasks = [], homeworks = [], h
       detail: record.projectId ? 'Учебный проект' : 'Контрольная точка',
       dateKey: record.dueDate,
       done: Boolean(record.done),
+      blocked: isBlocked(record, tasks),
+      sourceTask: record,
       record
     }))
   ].sort((a, b) => a.dateKey.localeCompare(b.dateKey) || a.title.localeCompare(b.title, 'ru'))

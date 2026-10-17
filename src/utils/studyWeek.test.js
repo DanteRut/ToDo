@@ -70,4 +70,52 @@ describe('study week summary', () => {
       ritualsTotal: 1
     })
   })
+
+  it('keeps linked project milestones directly completable without duplicating the homework row', () => {
+    const prerequisite = { id: 'prerequisite', title: 'Подготовить материалы', date: MONDAY, done: false }
+    const linkedMilestone = {
+      id: 'linked-milestone',
+      title: 'Сдать лабораторную',
+      date: TUESDAY,
+      dueDate: FRIDAY,
+      done: false,
+      status: 'planned',
+      deadlineKind: 'Лабораторная',
+      dependsOn: [prerequisite.id]
+    }
+    const readyMilestone = {
+      id: 'ready-milestone',
+      title: 'Подготовиться к экзамену',
+      date: WEDNESDAY,
+      dueDate: FRIDAY,
+      done: false,
+      status: 'planned',
+      deadlineKind: 'Экзамен'
+    }
+    const summary = buildStudyWeekSummary({
+      weekStart: parseISO(MONDAY),
+      tasks: [prerequisite, linkedMilestone, readyMilestone],
+      homeworks: [{
+        id: 'linked-homework',
+        title: linkedMilestone.title,
+        subject: 'Математика',
+        dueDate: FRIDAY,
+        sourceTaskId: linkedMilestone.id,
+        done: false
+      }]
+    })
+
+    expect(summary.dueItems).toHaveLength(2)
+    expect(summary.dueItems.find(item => item.title === linkedMilestone.title)).toMatchObject({
+      kind: 'homework',
+      done: false,
+      blocked: true,
+      sourceTask: { id: linkedMilestone.id }
+    })
+    expect(summary.dueItems.find(item => item.title === readyMilestone.title)).toMatchObject({
+      kind: 'task',
+      blocked: false,
+      sourceTask: { id: readyMilestone.id }
+    })
+  })
 })

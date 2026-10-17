@@ -27,6 +27,22 @@ describe('storage', () => {
     expect(plain.log[0].sets[0]).toEqual({ weight: '20', reps: '8', done: true })
   })
 
+  it('keeps completed projects visible and distinct from archived projects', async () => {
+    await db.records.bulkPut([
+      { id: 'active-project', type: 'project', title: 'Active', status: 'active', order: 1, deleted: 0 },
+      { id: 'completed-project', type: 'project', title: 'Completed', status: 'completed', completedAt: '2026-10-17T10:00:00.000Z', order: 2, deleted: 0 },
+      { id: 'archived-project', type: 'project', title: 'Archived', status: 'archived', order: 3, deleted: 0 }
+    ])
+
+    await store.reload()
+
+    expect(store.projects.value.map(project => project.id)).toEqual(['active-project', 'completed-project'])
+    expect(store.projects.value.find(project => project.id === 'completed-project')).toMatchObject({
+      status: 'completed',
+      completedAt: '2026-10-17T10:00:00.000Z'
+    })
+  })
+
   it('seeds chain preparations in both the day plan and reusable templates', async () => {
     await store.init()
 
