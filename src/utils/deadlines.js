@@ -12,6 +12,10 @@ export function deadlineDateKey(task) {
   return /^\d{4}-\d{2}-\d{2}$/.test(dueDate) && isValid(parseISO(dueDate)) ? dueDate : ''
 }
 
+export function shouldStopDeadlineRecurrence(task) {
+  return Boolean(task?.deadlineKind && task.recurrence && task.recurrence !== 'none')
+}
+
 export function compareDeadlines(a, b) {
   const aDate = deadlineDateKey(a) || '9999-12-31'
   const bDate = deadlineDateKey(b) || '9999-12-31'

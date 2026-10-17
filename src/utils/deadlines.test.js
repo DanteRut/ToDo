@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compareDeadlines, deadlineDateKey, deadlineTone } from './deadlines'
+import { compareDeadlines, deadlineDateKey, deadlineTone, shouldStopDeadlineRecurrence } from './deadlines'
 
 describe('deadline display', () => {
   it('assigns the requested color group to each control-point kind', () => {
@@ -21,5 +21,14 @@ describe('deadline display', () => {
     expect(deadlineDateKey(tasks[0])).toBe('2026-03-30')
     expect(deadlineDateKey({ date: '2026-01-01', dueDate: '2026-02-30' })).toBe('')
     expect(tasks.sort(compareDeadlines).map(task => task.id)).toEqual(['nearest', 'later', 'no-deadline'])
+  })
+})
+
+
+describe('deadline recurrence completion', () => {
+  it('ends recurring control points without changing ordinary recurring tasks', () => {
+    expect(shouldStopDeadlineRecurrence({ deadlineKind: 'Экзамен', recurrence: 'daily' })).toBe(true)
+    expect(shouldStopDeadlineRecurrence({ deadlineKind: 'Защита', recurrence: 'none' })).toBe(false)
+    expect(shouldStopDeadlineRecurrence({ recurrence: 'daily' })).toBe(false)
   })
 })
