@@ -43,6 +43,21 @@ describe('storage', () => {
     })
   })
 
+  it('repairs pending tasks incorrectly stored with completed status during initialization', async () => {
+    const updatedAt = '2026-10-01T10:00:00.000Z'
+    await db.records.bulkPut([
+      { id: 'pending-repeat', type: 'task', title: 'Daily task', date: '2026-10-01', recurrence: 'daily', done: false, status: 'completed', completedAt: updatedAt, updatedAt, dirty: 0, deleted: 0 },
+      { id: 'actually-completed', type: 'task', title: 'Finished task', date: '2026-10-01', recurrence: 'none', done: true, status: 'completed', completedAt: updatedAt, updatedAt, dirty: 0, deleted: 0 },
+      { id: 'deleted-invalid', type: 'task', title: 'Deleted task', date: '2026-10-01', done: false, status: 'completed', updatedAt, dirty: 0, deleted: 1 }
+    ])
+
+    await store.init()
+
+    expect(await db.records.get('pending-repeat')).toMatchObject({ status: 'planned', done: false, completedAt: null, dirty: 1 })
+    expect(await db.records.get('actually-completed')).toMatchObject({ status: 'completed', done: true, completedAt: updatedAt, dirty: 0 })
+    expect(await db.records.get('deleted-invalid')).toMatchObject({ status: 'completed', done: false, deleted: 1, dirty: 0 })
+  })
+
   it('seeds chain preparations in both the day plan and reusable templates', async () => {
     await store.init()
 

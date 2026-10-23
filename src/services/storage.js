@@ -263,6 +263,23 @@ export const store = {
     await reload()
     return { tasks: legacyTasks.length }
   },
+  async normalizeTaskCompletionStatus() {
+    const tasks = await db.records.where('type').equals('task').toArray()
+    const inconsistent = tasks.filter(task => !task.deleted && !task.done && task.status === 'completed')
+    if (!inconsistent.length) return 0
+
+    const timestamp = now()
+    const writes = inconsistent.map(task => ({
+      ...task,
+      status: 'planned',
+      completedAt: null,
+      updatedAt: timestamp,
+      dirty: 1
+    }))
+    await db.transaction('rw', db.records, async () => { await db.records.bulkPut(writes) })
+    try { localStorage.setItem('momentum.localTouched', '1') } catch { /* Corrected statuses remain available locally. */ }
+    return writes.length
+  },
   workouts: computed(() => state.records.filter(r => r.type === 'workout').sort((a,b) => a.day-b.day)),
   homeworks: computed(() => state.records.filter(r => r.type === 'homework').sort((a,b) => (a.dueDate || '').localeCompare(b.dueDate || ''))),
   inbox: computed(() => state.records.filter(r => r.type === 'inbox').sort((a,b) => (b.createdAt || '').localeCompare(a.createdAt || ''))),
@@ -288,6 +305,7 @@ export const store = {
     await this.restoreLegacyPreparations()
     await this.ensureDefaultChainTemplatePreparations()
     await this.removeLegacyChainStages()
+    await this.normalizeTaskCompletionStatus()
     await reload()
     const backupDay = isoDay()
     try {
@@ -309,6 +327,10 @@ export const store = {
         await reload()
       }
       return null
+    }
+    if (plain.type === 'task' && !plain.done && plain.status === 'completed') {
+      plain.status = 'planned'
+      plain.completedAt = null
     }
     const next = { ...plain, updatedAt: now(), dirty: markDirty ? 1 : 0, deleted: plain.deleted || 0 }
     await db.records.put(next)

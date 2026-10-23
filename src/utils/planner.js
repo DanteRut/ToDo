@@ -36,6 +36,43 @@ export function nextRecurringDate(task) {
   return format(date, 'yyyy-MM-dd')
 }
 
+export function createRecurringOccurrence(task, date) {
+  const copy = { ...task }
+  delete copy.id
+  delete copy.updatedAt
+  delete copy.dirty
+  delete copy.completedAt
+
+  return {
+    ...copy,
+    chainId: null,
+    date,
+    done: false,
+    status: 'planned',
+    completedAt: null,
+    seriesId: task.seriesId || task.id,
+    subtasks: (task.subtasks || []).map(subtask => ({ ...subtask, done: false }))
+  }
+}
+
+export function stopRecurringSeries(tasks, selectedTask) {
+  if (!selectedTask?.id) return []
+  const seriesId = selectedTask.seriesId || selectedTask.id
+
+  return tasks
+    .filter(task => task.id === seriesId || task.seriesId === seriesId)
+    .filter(task => task.recurrence !== 'none'
+      || (task.id !== selectedTask.id && !task.done && task.status !== 'cancelled'))
+    .map(task => {
+      const otherPending = task.id !== selectedTask.id && !task.done
+      return {
+        ...task,
+        recurrence: 'none',
+        ...(otherPending ? { status: 'cancelled', completedAt: null } : {})
+      }
+    })
+}
+
 export function computeChainTimes(steps, startTime) {
   let [h, m] = startTime.split(':').map(Number)
   let cursor = h * 60 + m

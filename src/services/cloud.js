@@ -133,6 +133,7 @@ export async function syncNow() {
     await store.restoreLegacyPreparations()
     await store.ensureDefaultChainTemplatePreparations()
     await store.removeLegacyChainStages()
+    await store.normalizeTaskCompletionStatus()
 
     const conflictIds = new Set(cloud.conflicts.map(item => item.id))
     const dirty = (await db.records.toArray()).filter(r => r.dirty && !conflictIds.has(r.id))
@@ -170,6 +171,7 @@ export async function resolveCloudConflict(id, strategy) {
   await store.restoreLegacyPreparations()
   await store.ensureDefaultChainTemplatePreparations()
   await store.removeLegacyChainStages()
+  await store.normalizeTaskCompletionStatus()
   await store.reload()
   if (cloud.connected) await syncNow()
 }
