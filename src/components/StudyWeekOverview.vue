@@ -11,6 +11,11 @@ const props = defineProps({
 const emit = defineEmits(['select-day', 'open-item', 'toggle-task'])
 const shortDate = dateKey => format(parseISO(dateKey), 'd MMM', { locale: ru })
 const formatHours = minutes => `${Math.round(minutes / 60 * 10) / 10} ч`
+const priorityClass = item => {
+  const task = item.sourceTask || item.record
+  const priority = task?.priority === 'high' ? 'high' : task?.priority === 'medium' ? 'medium' : 'normal'
+  return `priority-${priority}`
+}
 </script>
 
 <template>
@@ -57,7 +62,7 @@ const formatHours = minutes => `${Math.round(minutes / 60 * 10) / 10} ч`
             <span><strong>{{item.title}}</strong><small>{{item.kindLabel}} · {{item.detail}}</small></span>
             <ArrowRight :size="14" aria-hidden="true"/>
           </button>
-          <button v-if="item.kind==='task'||item.sourceTask" type="button" class="study-week-due-toggle" :class="{completed:item.done}" :aria-label="item.done?`Вернуть ${item.sourceTask?.deadlineKind?'контрольную точку':'задачу'} в план: ${item.title}`:item.sourceTask?.deadlineKind&&item.sourceTask.recurrence&&item.sourceTask.recurrence!=='none'?`Завершить контрольную точку и остановить повторение: ${item.title}`:`Отметить ${item.sourceTask?.deadlineKind?'контрольную точку':'задачу'} выполненной: ${item.title}`" :aria-pressed="item.done" :disabled="!item.done&&item.blocked" :title="!item.done&&item.blocked?'Сначала заверши связанные действия':item.sourceTask?.deadlineKind&&item.sourceTask.recurrence&&item.sourceTask.recurrence!=='none'?'Завершить контрольную точку и остановить повторение':item.done?'Вернуть в план':'Отметить выполненной'" @click="emit('toggle-task',item.sourceTask||item.record)">
+          <button v-if="item.kind==='task'||item.sourceTask" type="button" class="study-week-due-toggle" :class="[{completed:item.done},(item.kind==='task'||item.sourceTask)?priorityClass(item):null]" :aria-label="item.done?`Вернуть ${item.sourceTask?.deadlineKind?'контрольную точку':'задачу'} в план: ${item.title}`:item.sourceTask?.deadlineKind&&item.sourceTask.recurrence&&item.sourceTask.recurrence!=='none'?`Завершить контрольную точку и остановить повторение: ${item.title}`:`Отметить ${item.sourceTask?.deadlineKind?'контрольную точку':'задачу'} выполненной: ${item.title}`" :aria-pressed="item.done" :disabled="!item.done&&item.blocked" :title="!item.done&&item.blocked?'Сначала заверши связанные действия':item.sourceTask?.deadlineKind&&item.sourceTask.recurrence&&item.sourceTask.recurrence!=='none'?'Завершить контрольную точку и остановить повторение':item.done?'Вернуть в план':'Отметить выполненной'" @click="emit('toggle-task',item.sourceTask||item.record)">
             <Check v-if="item.done" :size="14" aria-hidden="true"/><span v-else class="study-week-empty-check" aria-hidden="true"></span>
           </button>
           <span v-else class="study-week-due-spacer" aria-hidden="true"></span>

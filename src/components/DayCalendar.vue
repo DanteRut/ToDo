@@ -56,9 +56,15 @@ function eventStyle(event) {
     width: `calc(${laneWidth}% - 6px)`
   }
 }
+function priorityClass(task) {
+  const priority = task?.priority === 'high' ? 'high' : task?.priority === 'medium' ? 'medium' : 'normal'
+  return `priority-${priority}`
+}
 function eventClass(event) {
+  const priority = event.source?.priority === 'high' ? 'high' : event.source?.priority === 'medium' ? 'medium' : 'normal'
   return [
     `day-calendar-event--${event.type}`,
+    event.type === 'task' ? `day-calendar-event--priority-${priority}` : null,
     { completed: Boolean(event.source?.done), draggable: canDragEvent(event) }
   ]
 }
@@ -137,16 +143,15 @@ function handleEventClick(eventItem, event) {
     <div v-if="interactive" class="day-calendar-builder-tools">
       <div class="day-calendar-unscheduled">
         <div class="day-calendar-pool-heading"><strong>Без времени</strong><span>{{unscheduledTasks.length}}</span></div>
-        <p>Перетащи дело на шкалу. На телефоне выбери его и коснись времени.</p>
         <div v-if="unscheduledTasks.length" class="day-calendar-task-pool">
-          <button v-for="task in unscheduledTasks" :key="task.id" type="button" class="day-calendar-task-chip" :class="{selected:selectedTaskId===task.id}" draggable="true" :aria-pressed="selectedTaskId===task.id" @click="selectTask(task)" @dragstart="beginDrag(task,$event)" @dragend="endDrag">
+          <button v-for="task in unscheduledTasks" :key="task.id" type="button" class="day-calendar-task-chip" :class="[priorityClass(task),{selected:selectedTaskId===task.id}]" draggable="true" :aria-pressed="selectedTaskId===task.id" @click="selectTask(task)" @dragstart="beginDrag(task,$event)" @dragend="endDrag">
             <GripVertical :size="13" aria-hidden="true"/><span><strong>{{task.title}}</strong><small>{{task.duration||30}} мин</small></span>
           </button>
         </div>
         <div v-else class="day-calendar-empty-pool">Все дела на выбранный день уже стоят во времени.</div>
       </div>
       <div v-if="selectedTask" class="day-calendar-place-tools">
-        <span><strong>{{selectedTask.title}}</strong><small>Укажи точное начало или коснись шкалы</small></span>
+        <span><strong>{{selectedTask.title}}</strong></span>
         <input v-model="selectedTime" type="time" min="06:00" :max="selectedLatestTime" step="900" aria-label="Время начала выбранного дела"/>
         <button type="button" class="primary-btn" :disabled="!selectedTime" @click="placeAtEnteredTime"><Check :size="14"/> Поставить</button>
         <button type="button" class="ghost-btn" @click="selectTask(selectedTask)">Отмена</button>
@@ -175,7 +180,6 @@ function handleEventClick(eventItem, event) {
             <small v-if="event.type==='class'&&event.source?.room">Ауд. {{event.source.room}}<template v-if="event.source.teacher"> · {{event.source.teacher}}</template></small>
             <small v-else-if="event.type==='homework'&&event.source?.subject">{{event.source.subject}}</small>
           </button>
-          <div v-if="interactive&&selectedTask" class="day-calendar-placement-hint" aria-hidden="true">Выбери время для «{{selectedTask.title}}»</div>
         </div>
       </div>
     </div>
