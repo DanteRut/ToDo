@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDayCalendarPreview,
+  calendarInsertionAtPosition,
   calendarTaskUnitsFromEvents,
   layoutDayCalendarEvents,
   planCalendarInsertion
@@ -73,6 +74,33 @@ describe('day calendar layout and placement', () => {
     expect(plan.shiftedUnits.map(unit => unit.id)).toEqual(['task:later'])
   })
 
+  it('inserts at an overlap boundary between parallel tasks and only shifts tasks that follow that point', () => {
+    const units = calendarTaskUnitsFromEvents([
+      taskEvent('a', 540, 600),
+      taskEvent('b', 540, 570),
+      taskEvent('later', 600, 630)
+    ])
+    const plan = planCalendarInsertion(units, { id: 'task:new', taskIds: ['new'], duration: 30 }, 'a', 'between', 570)
+
+    expect(plan).toMatchObject({ valid: true, start: 570, insertionMinute: 570, shiftBy: 30, mode: 'between' })
+    expect(plan.shiftedUnits.map(unit => unit.id)).toEqual(['task:later'])
+  })
+
+  it('chooses before, between, or after from the cursor position, independent of which card is under it', () => {
+    const units = calendarTaskUnitsFromEvents([
+      taskEvent('a', 540, 600),
+      taskEvent('b', 540, 570),
+      taskEvent('later', 600, 630)
+    ])
+
+    expect(calendarInsertionAtPosition(units, 'a', 545, ['new'])).toMatchObject({ mode: 'before', insertionMinute: 540, groupStart: 540, groupEnd: 600 })
+    expect(calendarInsertionAtPosition(units, 'b', 545, ['new'])).toMatchObject({ mode: 'before', insertionMinute: 540, groupStart: 540, groupEnd: 600 })
+    expect(calendarInsertionAtPosition(units, 'a', 560, ['new'])).toMatchObject({ mode: 'between', insertionMinute: 570, groupStart: 540, groupEnd: 600 })
+    expect(calendarInsertionAtPosition(units, 'a', 590, ['new']).mode).toBe('after')
+    expect(calendarInsertionAtPosition(units, 'b', 570, ['new']).mode).toBe('between')
+    expect(calendarInsertionAtPosition(units, 'a', null, ['new'])).toBeNull()
+  })
+
   it('previews the inserted task and every task that will be shifted before the drop', () => {
     const events = [
       taskEvent('a', 540, 600),
@@ -84,6 +112,23 @@ describe('day calendar layout and placement', () => {
     expect(preview).toMatchObject({ valid: true, startTime: '09:00', insertionMode: 'before', shiftBy: 30 })
     expect(preview.events.find(event => event.preview === 'moving')).toMatchObject({ title: 'Новое дело', start: 540, end: 570 })
     expect(preview.events.filter(event => event.preview === 'shifted').map(event => event.start)).toEqual([570, 570, 630])
+  })
+
+  it('keeps the chosen between-task boundary in the live preview', () => {
+    const events = [
+      taskEvent('a', 540, 600),
+      taskEvent('b', 540, 570),
+      taskEvent('later', 600, 630)
+    ]
+    const preview = buildDayCalendarPreview(events, { id: 'new', title: 'Новое дело', duration: 30 }, '09:20', {
+      targetTaskId: 'a',
+      mode: 'between',
+      insertionMinute: 570
+    })
+
+    expect(preview).toMatchObject({ valid: true, startTime: '09:30', insertionMode: 'between', movingStart: 570 })
+    expect(preview.insertion.insertionMinute).toBe(570)
+    expect(preview.events.find(event => event.preview === 'moving')).toMatchObject({ start: 570, end: 600 })
   })
 
   it('uses full chain membership data to preview moving a chain member without breaking its order', () => {

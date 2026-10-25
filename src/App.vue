@@ -763,7 +763,7 @@ async function scheduleTaskByCalendarInsertion(savedTask,insertion){
   const allUnits=calendarTaskUnitsForDate(selectedDate.value)
   const allowedUnitIds=Array.isArray(insertion?.unitIds)?new Set(insertion.unitIds):null
   const units=allowedUnitIds?allUnits.filter(unit=>allowedUnitIds.has(unit.id)):allUnits
-  const plan=planCalendarInsertion(units,movingUnit,insertion?.targetTaskId,insertion?.mode)
+  const plan=planCalendarInsertion(units,movingUnit,insertion?.targetTaskId,insertion?.mode,insertion?.insertionMinute)
   if(!plan.target){flash('Не удалось найти задачу, относительно которой выполняется вставка');return}
   if(plan.reason==='same-unit'){flash('Нельзя вставить цепочку внутрь самой себя');return}
   if(!plan.valid){flash(plan.reason==='shifted-task-outside-day'?'После сдвига дела не помещаются до 24:00 — выбери другое место':'Вставка не помещается в расписание 06:00–24:00');return}
@@ -798,7 +798,8 @@ async function scheduleTaskByCalendarInsertion(savedTask,insertion){
   const shiftedTaskCount=plan.shiftedUnits.reduce((sum,unit)=>sum+unit.taskIds.length,0)
   const insertedLabel=movingUnit.chainId?`Цепочка «${movingUnit.title}»`:`«${savedTask.title}»`
   const shiftMessage=shiftedTaskCount?`; сдвинуто ${shiftedTaskCount} ${pluralize(shiftedTaskCount,['задача','задачи','задач'])} на ${plan.shiftBy} мин`:''
-  const result=`${insertedLabel} вставлено ${plan.mode==='before'?'перед':'после'} «${store.tasks.value.find(item=>item.id===insertion.targetTaskId)?.title||plan.target.title}»${shiftMessage}`
+  const placementMessage=plan.mode==='between'?`между задачами на ${minToTime(plan.start)}`:`${plan.mode==='before'?'перед':'после'} «${store.tasks.value.find(item=>item.id===insertion.targetTaskId)?.title||plan.target.title}»`
+  const result=`${insertedLabel} вставлено ${placementMessage}${shiftMessage}`
   flash(conflict?`${result}, но есть пересечение с «${conflict.title}»`:result)
   syncSoon()
 }

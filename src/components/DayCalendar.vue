@@ -1,8 +1,8 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { Check, GripVertical } from 'lucide-vue-next'
 import { fromMinutes } from '../utils/dayPlan'
-import { buildDayCalendarPreview, DAY_CALENDAR_HOUR_HEIGHT, DAY_CALENDAR_MIN_EVENT_HEIGHT, layoutDayCalendarEvents } from '../utils/dayCalendar'
+import { buildDayCalendarPreview, calendarInsertionAtPosition, calendarTaskUnitsFromEvents, DAY_CALENDAR_HOUR_HEIGHT, DAY_CALENDAR_MIN_EVENT_HEIGHT, layoutDayCalendarEvents } from '../utils/dayCalendar'
 import { timeToMinute } from '../utils/weeklyPlan'
 import { DAY_SCHEDULE_END, DAY_SCHEDULE_START, scheduleTimeAtPosition } from '../utils/daySchedule'
 
@@ -25,10 +25,16 @@ const track = ref(null)
 const selectedTaskId = ref('')
 const selectedTime = ref('')
 const draggedTask = ref(null)
+const pointerDrag = ref(null)
 const draggingOver = ref(false)
 const dropPreview = ref(null)
 const dropTargetLock = ref(null)
+const suppressedClickTaskId = ref('')
+const suppressTrackClick = ref(false)
 const announcement = ref('')
+const POINTER_DRAG_THRESHOLD = 8
+const INSERTION_HIT_SLOP = 36
+let suppressedClickTimer
 const selectedTask = computed(() => props.unscheduledTasks.find(task => task.id === selectedTaskId.value) || null)
 const placementTask = computed(() => draggedTask.value || selectedTask.value)
 const selectedTimeBounds = computed(() => {
@@ -100,32 +106,133 @@ function selectTask(task) {
     ? `Выбрано дело «${task.title}». Перетащи его на время или укажи начало вручную.`
     : 'Выбор снят.'
 }
-function beginDrag(task, event) {
-  draggedTask.value = task
-  selectedTaskId.value = task.id
-  dropPreview.value = null
-  dropTargetLock.value = null
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', task.id)
+function removePointerDragListeners() {
+  window.removeEventListener('pointermove', handlePointerDragMove)
+  window.removeEventListener('pointerup', finishPointerDrag)
+  window.removeEventListener('pointercancel', cancelPointerDrag)
+}
+function beginPointerDrag(task, event, sourceEvent = null) {
+  if (!props.interactive || !task || event.button !== 0 || event.isPrimary === false || pointerDrag.value) return
+  if (sourceEvent && !canDragEvent(sourceEvent)) return
+
+  pointerDrag.value = {
+    task,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    fromSchedule: Boolean(sourceEvent),
+    active: false
+  }
+  window.addEventListener('pointermove', handlePointerDragMove, { passive: false })
+  window.addEventListener('pointerup', finishPointerDrag)
+  window.addEventListener('pointercancel', cancelPointerDrag)
+  try {
+    event.currentTarget?.setPointerCapture(event.pointerId)
+  } catch {
+    // Pointer capture is optional; window listeners still track the gesture.
   }
 }
-function beginEventDrag(eventItem, event) {
+function beginPoolPointerDrag(task, event) {
+  beginPointerDrag(task, event)
+}
+function beginEventPointerDrag(eventItem, event) {
   if (!canDragEvent(eventItem)) return
-  draggedTask.value = eventItem.source
+  beginPointerDrag(eventItem.source, event, eventItem)
+}
+function activatePointerDrag(drag) {
+  drag.active = true
+  draggedTask.value = drag.task
+  selectedTaskId.value = drag.task.id
+  selectedTime.value = ''
   dropPreview.value = null
   dropTargetLock.value = null
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', eventItem.source.id)
+}
+function isPointerOverTrack(event) {
+  const rect = track.value?.getBoundingClientRect()
+  return Boolean(rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)
+}
+function suppressDraggedClick(taskId) {
+  clearTimeout(suppressedClickTimer)
+  suppressedClickTaskId.value = taskId
+  suppressTrackClick.value = true
+  suppressedClickTimer = setTimeout(() => {
+    if (suppressedClickTaskId.value === taskId) suppressedClickTaskId.value = ''
+    suppressTrackClick.value = false
+  }, 300)
+}
+function consumeSuppressedClick(taskId, event) {
+  if (!taskId || suppressedClickTaskId.value !== taskId) return false
+  event.preventDefault()
+  event.stopPropagation()
+  suppressedClickTaskId.value = ''
+  suppressTrackClick.value = false
+  clearTimeout(suppressedClickTimer)
+  return true
+}
+function handlePoolTaskClick(task, event) {
+  if (consumeSuppressedClick(task.id, event)) return
+  selectTask(task)
+}
+function handlePointerDragMove(event) {
+  const drag = pointerDrag.value
+  if (!drag || drag.pointerId !== event.pointerId) return
+  if (!drag.active && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < POINTER_DRAG_THRESHOLD) return
+  if (!drag.active) activatePointerDrag(drag)
+
+  event.preventDefault()
+  if (!isPointerOverTrack(event)) {
+    draggingOver.value = false
+    dropPreview.value = null
+    dropTargetLock.value = null
+    return
+  }
+
+  draggingOver.value = true
+  previewAtPointer(event, drag.task)
+}
+function finishPointerDrag(event) {
+  const drag = pointerDrag.value
+  if (!drag || drag.pointerId !== event.pointerId) return
+  removePointerDragListeners()
+  pointerDrag.value = null
+  if (!drag.active) return
+
+  suppressDraggedClick(drag.task.id)
+  event.preventDefault()
+  if (!isPointerOverTrack(event)) {
+    draggedTask.value = null
+    draggingOver.value = false
+    dropPreview.value = null
+    dropTargetLock.value = null
+    if (drag.fromSchedule) selectedTaskId.value = ''
+    return
+  }
+
+  const preview = previewAtPointer(event, drag.task)
+  finishPreview(drag.task, preview)
+  if (!preview?.valid) {
+    draggedTask.value = null
+    draggingOver.value = false
+    dropTargetLock.value = null
+    if (drag.fromSchedule) selectedTaskId.value = ''
   }
 }
-function endDrag() {
+function cancelPointerDrag(event) {
+  const drag = pointerDrag.value
+  if (!drag || drag.pointerId !== event.pointerId) return
+  removePointerDragListeners()
+  pointerDrag.value = null
+  if (!drag.active) return
   draggedTask.value = null
   draggingOver.value = false
   dropPreview.value = null
   dropTargetLock.value = null
+  if (drag.fromSchedule) selectedTaskId.value = ''
 }
+onBeforeUnmount(() => {
+  removePointerDragListeners()
+  clearTimeout(suppressedClickTimer)
+})
 function emitSchedule(task, startTime, insertion = null) {
   if (!task || !startTime) return
   emit('schedule-task', { task, startTime, insertion })
@@ -142,75 +249,126 @@ function timeAtPointer(event, duration) {
   if (!rect) return ''
   return scheduleTimeAtPosition(event.clientY, rect.top, TOTAL_HEIGHT, duration)
 }
+function insertionUnits() {
+  return props.taskUnits.length ? props.taskUnits : calendarTaskUnitsFromEvents(props.events)
+}
+function movingTaskIds(task) {
+  const unit = insertionUnits().find(item => (item.taskIds || []).some(id => id === task?.id))
+  return unit?.taskIds || (task?.id === undefined ? [] : [task.id])
+}
+function insertionBounds(insertion, targetElement) {
+  const trackRect = track.value?.getBoundingClientRect()
+  if (!trackRect) return null
+  const scrollTop = track.value?.closest('.day-calendar-scroll')?.scrollTop || 0
+  const taskIds = new Set(insertion.group.flatMap(unit => unit.taskIds || []))
+  const elements = [...(track.value.querySelectorAll('[data-calendar-event-id]') || [])]
+    .filter(element => taskIds.has(props.events.find(item => String(item.id) === element.dataset.calendarEventId)?.source?.id))
+  if (targetElement && !elements.includes(targetElement)) elements.push(targetElement)
+  const rects = elements.map(element => element.getBoundingClientRect()).filter(rect => rect.height > 0)
+  const groupTop = (insertion.groupStart - DAY_SCHEDULE_START) / 60 * HOUR_HEIGHT
+  const groupBottom = (insertion.groupEnd - DAY_SCHEDULE_START) / 60 * HOUR_HEIGHT
+  const top = Math.min(groupTop, ...rects.map(rect => rect.top - trackRect.top + scrollTop))
+  const bottom = Math.max(groupBottom, ...rects.map(rect => rect.bottom - trackRect.top + scrollTop))
+  return { top, bottom }
+}
+function isInvalidInsertionTarget(targetEvent, task) {
+  return targetEvent.type !== 'task' || !targetEvent.source?.id || targetEvent.source.done
+    || targetEvent.source.id === task?.id
+    || (task?.chainId && targetEvent.source.chainId === task.chainId)
+}
 function insertionAtPointer(event, task, targetEvent = null, targetElement = null) {
   const trackRect = track.value?.getBoundingClientRect()
   const scrollTop = track.value?.closest('.day-calendar-scroll')?.scrollTop || 0
   const pointerY = trackRect ? event.clientY - trackRect.top + scrollTop : event.clientY
+  const pointerMinute = timeToMinute(timeAtPointer(event, task.duration))
+
+  if (!targetEvent && !targetElement) ({ targetEvent, targetElement } = targetEventAtPointer(event, task))
+  if (targetEvent && isInvalidInsertionTarget(targetEvent, task)) {
+    dropTargetLock.value = null
+    return null
+  }
   if (targetEvent) {
-    const invalidTarget = targetEvent.type !== 'task' || !targetEvent.source?.id || targetEvent.source.done
-      || targetEvent.source.id === task?.id
-      || (task?.chainId && targetEvent.source.chainId === task.chainId)
-    if (invalidTarget) {
+    const insertion = calendarInsertionAtPosition(insertionUnits(), targetEvent.source.id, pointerMinute, movingTaskIds(task))
+    if (!insertion) {
       dropTargetLock.value = null
       return null
     }
-    const rect = targetElement?.getBoundingClientRect?.()
-    if (!rect || rect.height <= 0 || !trackRect) return null
-    const top = rect.top - trackRect.top + scrollTop
-    const bottom = top + rect.height
-    dropTargetLock.value = { targetTaskId: targetEvent.source.id, top, bottom }
-    return { targetTaskId: targetEvent.source.id, mode: pointerY < top + rect.height / 2 ? 'before' : 'after' }
+    const bounds = insertionBounds(insertion, targetElement)
+    const laneCount = Math.max(3, targetEvent.lanes || 1)
+    dropTargetLock.value = bounds ? { targetTaskId: targetEvent.source.id, lane: targetEvent.lane ?? 0, laneCount, ...bounds } : null
+    return { targetTaskId: targetEvent.source.id, mode: insertion.mode, insertionMinute: insertion.insertionMinute }
   }
 
   const locked = dropTargetLock.value
-  if (locked && pointerY >= locked.top && pointerY <= locked.bottom) {
+  const laneCount = Math.max(3, locked?.laneCount || 1)
+  const currentLane = trackRect?.width
+    ? Math.min(laneCount - 1, Math.max(0, Math.floor((event.clientX - trackRect.left) / trackRect.width * laneCount)))
+    : null
+  if (locked && currentLane === locked.lane && pointerY >= locked.top - INSERTION_HIT_SLOP && pointerY <= locked.bottom + INSERTION_HIT_SLOP) {
     const target = props.events.find(item => item.type === 'task' && item.source?.id === locked.targetTaskId)
-    if (target && !target.source?.done && target.source.id !== task?.id && !(task?.chainId && target.source.chainId === task.chainId)) {
-      return { targetTaskId: locked.targetTaskId, mode: pointerY < (locked.top + locked.bottom) / 2 ? 'before' : 'after' }
+    if (target && !isInvalidInsertionTarget(target, task)) {
+      const insertion = calendarInsertionAtPosition(insertionUnits(), locked.targetTaskId, pointerMinute, movingTaskIds(task))
+      if (insertion) return { targetTaskId: locked.targetTaskId, mode: insertion.mode, insertionMinute: insertion.insertionMinute }
     }
   }
   dropTargetLock.value = null
   return null
 }
-function targetEventAtPointer(event) {
-  const targetElement = event.target?.closest?.('[data-calendar-event-id]') || null
-  if (!targetElement) return { targetEvent: null, targetElement: null }
-  const id = targetElement.dataset.calendarEventId
-  return {
-    targetEvent: props.events.find(item => String(item.id) === id) || null,
-    targetElement
+function isValidInsertionCandidate(targetEvent, task) {
+  return targetEvent?.type === 'task' && targetEvent.source?.id !== undefined && !targetEvent.source.done
+    && targetEvent.source.id !== task?.id
+    && !(task?.chainId && targetEvent.source.chainId === task.chainId)
+}
+function nearestTaskEventAtPointer(event, task) {
+  const trackRect = track.value?.getBoundingClientRect()
+  if (!trackRect?.width || event.clientX < trackRect.left || event.clientX > trackRect.right) return { targetEvent: null, targetElement: null }
+  const elements = [...(track.value?.querySelectorAll('[data-calendar-event-id]') || [])]
+  let nearest = null
+  for (const element of elements) {
+    const targetEvent = renderedEvents.value.find(item => String(item.id) === element.dataset.calendarEventId)
+    if (!isValidInsertionCandidate(targetEvent, task)) continue
+    const laneCount = Math.max(3, targetEvent.lanes || 1)
+    const pointerLane = Math.min(laneCount - 1, Math.max(0, Math.floor((event.clientX - trackRect.left) / trackRect.width * laneCount)))
+    if (pointerLane !== (targetEvent.lane ?? 0)) continue
+    const rect = element.getBoundingClientRect()
+    const distance = Math.max(rect.top - event.clientY, 0, event.clientY - rect.bottom)
+    if (distance <= INSERTION_HIT_SLOP && (!nearest || distance < nearest.distance)) {
+      nearest = { targetEvent, targetElement: element, distance }
+    }
   }
+  return nearest
+    ? { targetEvent: nearest.targetEvent, targetElement: nearest.targetElement }
+    : { targetEvent: null, targetElement: null }
+}
+function targetEventAtPointer(event, task) {
+  const pointTarget = document.elementFromPoint?.(event.clientX, event.clientY)
+  const elements = [pointTarget, event.target]
+  for (const element of elements) {
+    const targetElement = element?.closest?.('[data-calendar-event-id]') || null
+    if (!targetElement) continue
+    const id = targetElement.dataset.calendarEventId
+    const targetEvent = renderedEvents.value.find(item => String(item.id) === id) || null
+    if (!targetEvent) continue
+    if (element === pointTarget || isValidInsertionCandidate(targetEvent, task)) return { targetEvent, targetElement }
+  }
+  return nearestTaskEventAtPointer(event, task)
 }
 function previewAtPointer(event, task = placementTask.value, targetEvent = null, targetElement = null) {
   if (!task) return null
   const startTime = timeAtPointer(event, task.duration)
   if (!startTime) return null
-  if (!targetEvent && !targetElement) ({ targetEvent, targetElement } = targetEventAtPointer(event))
+  if (!targetEvent && !targetElement) ({ targetEvent, targetElement } = targetEventAtPointer(event, task))
   const insertion = insertionAtPointer(event, task, targetEvent, targetElement)
   const preview = buildDayCalendarPreview(props.events, task, startTime, insertion, props.taskUnits)
   dropPreview.value = preview
   return preview
 }
-function handleDragOver(event) {
-  if (!props.interactive) return
-  event.preventDefault()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-  draggingOver.value = true
-  previewAtPointer(event)
-}
-function handleDragLeave(event) {
-  const rect = track.value?.getBoundingClientRect()
-  if (rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) return
-  draggingOver.value = false
-  dropTargetLock.value = null
-  if (draggedTask.value) dropPreview.value = null
-}
 function handlePointerMove(event) {
-  if (!props.interactive || !selectedTask.value || draggedTask.value) return
+  if (!props.interactive || !selectedTask.value || draggedTask.value || pointerDrag.value?.active) return
   previewAtPointer(event, selectedTask.value)
 }
 function handlePointerLeave() {
-  if (draggedTask.value) return
+  if (draggedTask.value || pointerDrag.value?.active) return
   dropPreview.value = null
   dropTargetLock.value = null
 }
@@ -226,6 +384,14 @@ function finishPreview(task, preview) {
   emitSchedule(task, preview.startTime, preview.insertion)
 }
 function placeSelectedTask(event) {
+  if (suppressTrackClick.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    suppressTrackClick.value = false
+    suppressedClickTaskId.value = ''
+    clearTimeout(suppressedClickTimer)
+    return
+  }
   if (!props.interactive || !selectedTask.value) return
   event.stopPropagation()
   finishPreview(selectedTask.value, previewAtPointer(event, selectedTask.value))
@@ -234,14 +400,8 @@ function placeAtEnteredTime() {
   if (!selectedTask.value || !selectedTime.value) return
   finishPreview(selectedTask.value, buildDayCalendarPreview(props.events, selectedTask.value, selectedTime.value, null, props.taskUnits))
 }
-function handleDrop(event) {
-  if (!props.interactive) return
-  const task = draggedTask.value || selectedTask.value
-  if (!task) return
-  event.preventDefault()
-  finishPreview(task, previewAtPointer(event, task))
-}
 function handleEventClick(eventItem, event) {
+  if (consumeSuppressedClick(eventItem.source?.id, event)) return
   if (props.interactive && selectedTask.value) {
     event.stopPropagation()
     const startTime = fromMinutes(Math.max(DAY_SCHEDULE_START, eventItem.start))
@@ -254,12 +414,13 @@ function handleEventClick(eventItem, event) {
 </script>
 
 <template>
-  <section class="day-calendar-card" :class="{ interactive, 'drag-over': draggingOver }" :aria-label="`Расписание дня с 06:00 до 24:00${interactive ? ', конструктор расписания' : ''}`">
+  <section class="day-calendar-card" :class="{ interactive, 'drag-over': draggingOver, 'pointer-dragging': Boolean(pointerDrag?.active) }" :aria-label="`Расписание дня с 06:00 до 24:00${interactive ? ', конструктор расписания' : ''}`">
     <div v-if="interactive" class="day-calendar-builder-tools">
       <div class="day-calendar-unscheduled">
         <div class="day-calendar-pool-heading"><strong>Без времени</strong><span>{{unscheduledTasks.length}}</span></div>
+        <p class="day-calendar-pool-hint">Перетащи задачу на шкалу; на телефоне жест тоже работает. Или выбери задачу и нажми на нужное время.</p>
         <div v-if="unscheduledTasks.length" class="day-calendar-task-pool">
-          <button v-for="task in unscheduledTasks" :key="task.id" type="button" class="day-calendar-task-chip" :class="[priorityClass(task),{selected:selectedTaskId===task.id}]" draggable="true" :aria-pressed="selectedTaskId===task.id" @click="selectTask(task)" @dragstart="beginDrag(task,$event)" @dragend="endDrag">
+          <button v-for="task in unscheduledTasks" :key="task.id" type="button" class="day-calendar-task-chip" :class="[priorityClass(task),{selected:selectedTaskId===task.id}]" :aria-pressed="selectedTaskId===task.id" @click="handlePoolTaskClick(task,$event)" @pointerdown.stop="beginPoolPointerDrag(task,$event)">
             <GripVertical :size="13" aria-hidden="true"/><span><strong>{{task.title}}</strong><small>{{task.duration||30}} мин</small></span>
           </button>
         </div>
@@ -279,10 +440,10 @@ function handleEventClick(eventItem, event) {
     <div v-if="interactive" class="day-calendar-preview-status" :class="{active:Boolean(dropPreview),invalid:Boolean(dropPreview&&!dropPreview.valid)}" aria-live="off">
       <template v-if="dropPreview">
         <strong>{{dropPreview.startTime}}</strong>
-        <span v-if="dropPreview.insertion">Вставить {{dropPreview.insertionMode==='before'?'перед':'после'}} «{{dropPreview.targetTitle}}» · сдвиг {{dropPreview.shiftBy}} мин</span>
+        <span v-if="dropPreview.insertion">Вставить <template v-if="dropPreview.insertionMode==='between'">между параллельными делами · {{dropPreview.startTime}}</template><template v-else>{{dropPreview.insertionMode==='before'?'перед':'после'}} «{{dropPreview.targetTitle}}»</template> · сдвиг {{dropPreview.shiftBy}} мин</span>
         <span v-else>{{dropPreview.valid?'Предпросмотр позиции':dropPreview.reason==='shifted-task-outside-day'?'Сдвиг выйдет за 24:00':'Задача не помещается в день'}}</span>
       </template>
-      <span v-else>Свободное место — параллельная задача; верх/низ карточки — вставка со сдвигом.</span>
+      <span v-else>В свободной колонке задача останется параллельной; у группы — в ближайший промежуток или конец со сдвигом.</span>
     </div>
     <div v-if="dayBoundaryTimes.length" class="day-calendar-day-boundaries" aria-label="Границы дня">
       <span v-for="boundary in dayBoundaryTimes" :key="boundary.key" :class="`day-calendar-day-boundary--${boundary.key}`">{{boundary.label}} <strong>{{boundary.value}}</strong></span>
@@ -294,10 +455,10 @@ function handleEventClick(eventItem, event) {
           <span v-for="hour in HOURS" :key="hour" :class="{major:hour%3===0}" :style="hourStyle(hour)">{{padded(hour)}}:00</span>
           <b :style="{top:`${TOTAL_HEIGHT}px`}">24:00</b>
         </div>
-        <div ref="track" class="day-calendar-track" :class="{'can-place':interactive&&placementTask,'drop-target':draggingOver}" :style="{height:`${TRACK_HEIGHT}px`}" :aria-label="'Временная шкала от 06:00 до 24:00'" @click="placeSelectedTask" @pointermove="handlePointerMove" @pointerleave="handlePointerLeave" @dragover="handleDragOver" @dragleave="handleDragLeave" @drop.prevent.stop="handleDrop">
+        <div ref="track" class="day-calendar-track" :class="{'can-place':interactive&&placementTask,'drop-target':draggingOver}" :style="{height:`${TRACK_HEIGHT}px`}" :aria-label="'Временная шкала от 06:00 до 24:00'" @click="placeSelectedTask" @pointermove="handlePointerMove" @pointerleave="handlePointerLeave">
           <div v-for="hour in HOURS" :key="`line-${hour}`" class="day-calendar-hour-line" :class="{major:hour%3===0}" :style="hourStyle(hour)" aria-hidden="true"></div>
           <div v-for="boundary in boundaries" :key="boundary.key" class="day-calendar-boundary" :class="`day-calendar-boundary--${boundary.key}`" :style="{top:`${(boundary.minute-DAY_SCHEDULE_START)/60*HOUR_HEIGHT}px`}" aria-hidden="true"><span>{{boundary.label}} · {{boundary.value}}</span></div>
-          <button v-for="event in renderedEvents" :key="event.id" :data-calendar-event-id="event.preview&&event.preview!=='source'?null:event.id" type="button" class="day-calendar-event" :class="eventClass(event)" :style="eventStyle(event)" :draggable="canDragEvent(event)" :title="`${event.title} · ${clockLabel(event.start)}–${clockLabel(event.end)}${event.chainTitle?` · ${event.chainTitle}`:event.projectTitle?` · ${event.projectTitle}`:''}`" :aria-label="`${event.title}, ${clockLabel(event.start)}–${clockLabel(event.end)}${event.chainTitle?`, цепочка ${event.chainTitle}`:event.projectTitle?`, проект ${event.projectTitle}`:''}`" @click.stop="handleEventClick(event,$event)" @dragstart="beginEventDrag(event,$event)" @dragend="endDrag">
+          <button v-for="event in renderedEvents" :key="event.id" :data-calendar-event-id="event.preview&&event.preview!=='source'?null:event.id" type="button" class="day-calendar-event" :class="eventClass(event)" :style="eventStyle(event)" :title="`${event.title} · ${clockLabel(event.start)}–${clockLabel(event.end)}${event.chainTitle?` · ${event.chainTitle}`:event.projectTitle?` · ${event.projectTitle}`:''}`" :aria-label="`${event.title}, ${clockLabel(event.start)}–${clockLabel(event.end)}${event.chainTitle?`, цепочка ${event.chainTitle}`:event.projectTitle?`, проект ${event.projectTitle}`:''}`" @pointerdown.stop="beginEventPointerDrag(event,$event)" @click.stop="handleEventClick(event,$event)">
             <strong>{{event.title}}</strong>
             <small>{{clockLabel(event.start)}}–{{clockLabel(event.end)}}<template v-if="event.chainTitle"> · {{event.chainTitle}}</template><template v-else-if="event.projectTitle"> · {{event.projectTitle}}</template></small>
             <small v-if="event.type==='class'&&event.source?.room">Ауд. {{event.source.room}}<template v-if="event.source.teacher"> · {{event.source.teacher}}</template></small>

@@ -99,50 +99,97 @@ function unitContainsAny(unit, ids) {
   return (unit.taskIds || []).some(id => ids.has(id))
 }
 
-export function planCalendarInsertion(units = [], movingUnit, targetTaskId, mode = 'before') {
-  const movingIds = new Set(movingUnit?.taskIds || [])
-  const target = units.find(unit => (unit.taskIds || []).some(id => sameTaskId(id, targetTaskId)))
-  const normalizedMode = mode === 'after' ? 'after' : 'before'
-
-  if (!movingUnit || !Number.isFinite(Number(movingUnit.duration)) || Number(movingUnit.duration) <= 0) {
-    return { valid: false, reason: 'invalid-moving-task', target: null, mode: normalizedMode, shiftedUnits: [] }
-  }
-  if (!target) return { valid: false, reason: 'target-not-found', target: null, mode: normalizedMode, shiftedUnits: [] }
-  if (unitContainsAny(target, movingIds)) {
-    return { valid: false, reason: 'same-unit', target, mode: normalizedMode, shiftedUnits: [] }
-  }
-
-  const eligible = units.filter(unit => !unitContainsAny(unit, movingIds))
-  const block = [target]
-  let blockStart = target.start
-  let blockEnd = target.end
+function overlapGroup(units, target, eligible) {
+  const group = [target]
+  let start = target.start
+  let end = target.end
   let expanded = true
 
   while (expanded) {
     expanded = false
     for (const unit of eligible) {
-      if (block.includes(unit)) continue
-      if (unit.start < blockEnd && unit.end > blockStart) {
-        block.push(unit)
-        blockStart = Math.min(blockStart, unit.start)
-        blockEnd = Math.max(blockEnd, unit.end)
+      if (group.includes(unit)) continue
+      if (unit.start < end && unit.end > start) {
+        group.push(unit)
+        start = Math.min(start, unit.start)
+        end = Math.max(end, unit.end)
         expanded = true
       }
     }
   }
 
-  const start = normalizedMode === 'after' ? blockEnd : blockStart
+  return { group, start, end }
+}
+
+function insertionContext(units, targetTaskId, movingTaskIds = []) {
+  const movingIds = movingTaskIds instanceof Set ? movingTaskIds : new Set(movingTaskIds || [])
+  const target = units.find(unit => (unit.taskIds || []).some(id => sameTaskId(id, targetTaskId)))
+  if (!target) return null
+  if (unitContainsAny(target, movingIds)) return { target, sameUnit: true, group: [target], start: target.start, end: target.end, eligible: [] }
+
+  const eligible = units.filter(unit => !unitContainsAny(unit, movingIds))
+  return { target, sameUnit: false, eligible, ...overlapGroup(eligible, target, eligible) }
+}
+
+export function calendarInsertionAtPosition(units = [], targetTaskId, pointerMinute, movingTaskIds = []) {
+  const context = insertionContext(units, targetTaskId, movingTaskIds)
+  const position = pointerMinute === null || pointerMinute === undefined || pointerMinute === '' ? NaN : Number(pointerMinute)
+  if (!context || context.sameUnit || !Number.isFinite(position)) return null
+
+  const internalBoundaries = [...new Set(context.group.flatMap(unit => [unit.start, unit.end])
+    .filter(minute => minute > context.start && minute < context.end))]
+  const candidates = [
+    { minute: context.start, mode: 'before', priority: 0 },
+    ...internalBoundaries.map(minute => ({ minute, mode: 'between', priority: 1 })),
+    { minute: context.end, mode: 'after', priority: 2 }
+  ]
+  const nearest = candidates.reduce((best, candidate) => {
+    const distance = Math.abs(position - candidate.minute)
+    return distance < best.distance || (distance === best.distance && candidate.priority > best.priority)
+      ? { ...candidate, distance }
+      : best
+  }, { ...candidates[0], distance: Math.abs(position - candidates[0].minute) })
+
+  return {
+    targetTaskId,
+    mode: nearest.mode,
+    insertionMinute: nearest.minute,
+    group: context.group,
+    groupStart: context.start,
+    groupEnd: context.end
+  }
+}
+
+export function planCalendarInsertion(units = [], movingUnit, targetTaskId, mode = 'before', insertionMinute = null) {
+  const movingIds = new Set(movingUnit?.taskIds || [])
+  const normalizedMode = mode === 'after' ? 'after' : mode === 'between' ? 'between' : 'before'
+
+  if (!movingUnit || !Number.isFinite(Number(movingUnit.duration)) || Number(movingUnit.duration) <= 0) {
+    return { valid: false, reason: 'invalid-moving-task', target: null, mode: normalizedMode, shiftedUnits: [] }
+  }
+  const context = insertionContext(units, targetTaskId, movingIds)
+  if (!context) return { valid: false, reason: 'target-not-found', target: null, mode: normalizedMode, shiftedUnits: [] }
+  if (context.sameUnit) return { valid: false, reason: 'same-unit', target: context.target, mode: normalizedMode, shiftedUnits: [] }
+
+  const requestedInsertionMinute = insertionMinute === null || insertionMinute === undefined || insertionMinute === '' ? NaN : Number(insertionMinute)
+  if (normalizedMode === 'between' && !Number.isFinite(requestedInsertionMinute)) {
+    return { valid: false, reason: 'invalid-insertion-position', target: context.target, group: context.group, mode: normalizedMode, shiftedUnits: [] }
+  }
+  const start = normalizedMode === 'after' ? context.end : normalizedMode === 'between' ? requestedInsertionMinute : context.start
   const shiftBy = Number(movingUnit.duration)
-  const shiftedUnits = eligible.filter(unit => unit.start >= start)
+  const shiftedUnits = context.eligible.filter(unit => unit.start >= start)
   const taskFits = start >= DAY_SCHEDULE_START && start + shiftBy <= DAY_SCHEDULE_END
   const shiftedTasksFit = shiftedUnits.every(unit => unit.end + shiftBy <= DAY_SCHEDULE_END)
 
   return {
     valid: taskFits && shiftedTasksFit,
     reason: !taskFits ? 'moving-task-outside-day' : !shiftedTasksFit ? 'shifted-task-outside-day' : '',
-    target,
-    group: block,
+    target: context.target,
+    group: context.group,
+    groupStart: context.start,
+    groupEnd: context.end,
     mode: normalizedMode,
+    insertionMinute: start,
     start,
     shiftBy,
     shiftedUnits
@@ -211,7 +258,7 @@ export function buildDayCalendarPreview(events = [], task, startTime, insertion 
   }
 
   const proposedPlan = insertion?.targetTaskId !== undefined
-    ? planCalendarInsertion(eventTaskUnits, movingScheduleUnit, insertion.targetTaskId, insertion.mode)
+    ? planCalendarInsertion(eventTaskUnits, movingScheduleUnit, insertion.targetTaskId, insertion.mode, insertion.insertionMinute)
     : null
   const useInsertion = Boolean(proposedPlan?.target && proposedPlan.reason !== 'same-unit')
   const insertionStart = useInsertion ? proposedPlan.start : null
@@ -220,7 +267,7 @@ export function buildDayCalendarPreview(events = [], task, startTime, insertion 
     ? proposedPlan.valid
     : movingStart >= DAY_SCHEDULE_START && movingStart + movingDuration <= DAY_SCHEDULE_END
   const normalizedInsertion = useInsertion
-    ? { targetTaskId: insertion.targetTaskId, mode: proposedPlan.mode, unitIds: eventTaskUnits.map(unit => unit.id) }
+    ? { targetTaskId: insertion.targetTaskId, mode: proposedPlan.mode, insertionMinute: proposedPlan.insertionMinute, unitIds: eventTaskUnits.map(unit => unit.id) }
     : null
   const shiftedUnitIds = new Set(valid && useInsertion ? proposedPlan.shiftedUnits.map(unit => unit.id) : [])
   const unitForTaskId = new Map()
