@@ -16,6 +16,7 @@ import {
 } from 'lucide-vue-next'
 import { isBlocked, smartNext, nextRecurringDate, createRecurringOccurrence, stopRecurringSeries, computeChainTimes, currentTimeOfDay, buildChainSchedulePreview, chainScheduleStart, pluralize } from './utils/planner'
 import { buildDayTimeline, dayCapacity, focusLoadMinutes, focusLoadPercent, freeWindows, fromMinutes, toMinutes } from './utils/dayPlan'
+import { planCalendarInsertion } from './utils/dayCalendar'
 import { classAttendanceForDate, toggleClassAttendance, withClassAttendance } from './utils/classAttendance'
 import { habitValueForDate, habitsForDate, homeworkForDate, tasksForDate, toggleHabitForDate } from './utils/dateContext'
 import { buildStudyWeekSummary } from './utils/studyWeek'
@@ -472,6 +473,7 @@ const dayScheduleWakeTime = computed(() => todayReview.value?.wakeTime ?? weekly
 const dayScheduleWorkEndTime = computed(() => todayReview.value?.workEndTime || '')
 const dayScheduleSleepTime = computed(() => todayReview.value?.sleepTime || '')
 const dayScheduleEvents = computed(() => unifiedTimeline.value.filter(item=>item.end>6*60&&item.start<24*60))
+const calendarTaskUnits = computed(() => calendarTaskUnitsForDate(selectedDate.value,{includeUnscheduled:true}))
 const dayScheduleSummary = computed(() => {
   const boundaries=[dayScheduleWakeTime.value&&`Подъём ${dayScheduleWakeTime.value}`,dayScheduleWorkEndTime.value&&`Дела до ${dayScheduleWorkEndTime.value}`,dayScheduleSleepTime.value&&`Отбой ${dayScheduleSleepTime.value}`].filter(Boolean)
   const eventCount=dayScheduleEvents.value.length
@@ -493,6 +495,13 @@ const morningSelectedTimeline = computed(() => {
 })
 const calendarDayEvents = computed(() => calendarDayScope.value==='selected'?morningSelectedTimeline.value:unifiedTimeline.value)
 const calendarDayTasks = computed(() => calendarDayScope.value==='selected'?morningSelectedTasks.value.filter(task=>!task.startTime):planCalendarUnscheduledTasks.value)
+const calendarDayTaskUnits = computed(() => {
+  const visibleTaskIds=new Set([
+    ...calendarDayEvents.value.filter(item=>item.type==='task').map(item=>item.source?.id),
+    ...calendarDayTasks.value.map(task=>task.id)
+  ].filter(id=>id!==undefined&&id!==null))
+  return calendarTaskUnits.value.filter(unit=>unit.taskIds.some(id=>visibleTaskIds.has(id)))
+})
 const previousReviewGuidance = computed(() => previousEveningMessage(store.state.records,selectedDate.value))
 const latestMeasurements = computed(() => store.measurements.value.slice(0,5))
 const timeStats = computed(() => {const entries=store.timeEntries.value;const actual=entries.reduce((sum,item)=>sum+(item.actualMinutes||0),0);const planned=entries.reduce((sum,item)=>sum+(item.plannedMinutes||0),0);return{sessions:entries.length,actual,planned,ratio:planned?Math.round(actual/planned*100):0}})
@@ -718,9 +727,81 @@ async function reflowChain(chainId,startTime=null){const chain=store.chains.valu
 function calendarConflict(start,end,excludedTaskIds=new Set()){
   return dayScheduleEvents.value.find(event=>event.start<end&&event.end>start&&!(event.type==='task'&&excludedTaskIds.has(event.source?.id)))||null
 }
-async function scheduleTaskFromCalendar({task,startTime}){
+function calendarTaskUnitFromStore(task){
+  const members=task.chainId?tasksForChain(task.chainId):[task]
+  const chain=task.chainId?store.chains.value.find(item=>item.id===task.chainId):null
+  const duration=task.chainId?Math.max(1,members.reduce((sum,item)=>sum+(Number(item.duration)||0),0)):Math.max(1,Number(task.duration)||30)
+  return{id:task.chainId?`chain:${task.chainId}`:`task:${task.id}`,chainId:task.chainId||null,taskIds:members.map(item=>item.id),start:task.chainId?timeToMin(chain?.startTime||members.find(item=>item.startTime)?.startTime||'09:00'):task.startTime?timeToMin(task.startTime):null,end:null,duration,title:chain?.title||task.title,chain,members}
+}
+function calendarTaskUnitsForDate(date,{includeUnscheduled=false}={}){
+  const units=[],seenChains=new Set(),inactiveStatuses=['someday','cancelled','archived']
+  for(const task of store.tasks.value){
+    if(task.chainId){
+      if(seenChains.has(task.chainId))continue
+      seenChains.add(task.chainId)
+      const members=tasksForChain(task.chainId),dateMembers=members.filter(member=>member.date===date&&!member.done&&!inactiveStatuses.includes(member.status)),activeMembers=dateMembers.filter(member=>member.startTime)
+      if(!activeMembers.length&&!(includeUnscheduled&&dateMembers.length))continue
+      const chain=store.chains.value.find(item=>item.id===task.chainId)
+      if(!chain)continue
+      const start=activeMembers.length?timeToMin(chain.startTime||activeMembers[0].startTime):null,duration=Math.max(1,members.reduce((sum,item)=>sum+(Number(item.duration)||0),0))
+      units.push({id:`chain:${task.chainId}`,chainId:task.chainId,taskIds:members.map(member=>member.id),start,end:start===null?null:start+duration,duration,title:chain.title||dateMembers[0].title,chain,members})
+      continue
+    }
+    if(task.date!==date||!task.startTime||task.done||inactiveStatuses.includes(task.status))continue
+    const start=timeToMin(task.startTime),duration=Math.max(1,Number(task.duration)||30)
+    units.push({id:`task:${task.id}`,taskIds:[task.id],start,end:start+duration,duration,title:task.title,task})
+  }
+  return units
+}
+async function scheduleTaskByCalendarInsertion(savedTask,insertion){
+  const movingUnit=calendarTaskUnitFromStore(savedTask)
+  if(movingUnit.chainId&&!movingUnit.chain){flash('Не удалось найти цепочку для вставки');return}
+  const allUnits=calendarTaskUnitsForDate(selectedDate.value)
+  const allowedUnitIds=Array.isArray(insertion?.unitIds)?new Set(insertion.unitIds):null
+  const units=allowedUnitIds?allUnits.filter(unit=>allowedUnitIds.has(unit.id)):allUnits
+  const plan=planCalendarInsertion(units,movingUnit,insertion?.targetTaskId,insertion?.mode)
+  if(!plan.target){flash('Не удалось найти задачу, относительно которой выполняется вставка');return}
+  if(plan.reason==='same-unit'){flash('Нельзя вставить цепочку внутрь самой себя');return}
+  if(!plan.valid){flash(plan.reason==='shifted-task-outside-day'?'После сдвига дела не помещаются до 24:00 — выбери другое место':'Вставка не помещается в расписание 06:00–24:00');return}
+  if(plan.shiftedUnits.some(unit=>unit.chainId&&!store.chains.value.some(chain=>chain.id===unit.chainId))){flash('Не удалось найти одну из цепочек для сдвига');return}
+
+  const affectedIds=new Set([...movingUnit.taskIds,...plan.shiftedUnits.flatMap(unit=>unit.taskIds)])
+  let conflict=calendarConflict(plan.start,plan.start+movingUnit.duration,affectedIds)
+  for(const unit of plan.shiftedUnits){conflict=conflict||calendarConflict(unit.start+plan.shiftBy,unit.end+plan.shiftBy,affectedIds)}
+  const shiftedUnits=[...plan.shiftedUnits].sort((a,b)=>b.start-a.start)
+  for(const unit of shiftedUnits){
+    if(unit.chainId){
+      const chain=store.chains.value.find(item=>item.id===unit.chainId)
+      if(!chain)continue
+      const shiftedStart=minToTime(unit.start+plan.shiftBy)
+      await store.save({...chain,date:selectedDate.value,startTime:shiftedStart})
+      await reflowChain(chain.id,shiftedStart)
+    }else{
+      const shiftedTask=store.tasks.value.find(item=>item.id===unit.taskIds[0])
+      if(shiftedTask)await store.save({...shiftedTask,date:selectedDate.value,startTime:minToTime(unit.start+plan.shiftBy)})
+    }
+  }
+
+  if(movingUnit.chainId){
+    const chain=store.chains.value.find(item=>item.id===movingUnit.chainId)
+    if(!chain){flash('Не удалось найти цепочку для вставки');return}
+    await store.save({...chain,date:selectedDate.value})
+    await reflowChain(chain.id,minToTime(plan.start))
+  }else{
+    await store.save({...savedTask,date:selectedDate.value,startTime:minToTime(plan.start),status:savedTask.status==='someday'?'planned':savedTask.status||'planned'})
+  }
+
+  const shiftedTaskCount=plan.shiftedUnits.reduce((sum,unit)=>sum+unit.taskIds.length,0)
+  const insertedLabel=movingUnit.chainId?`Цепочка «${movingUnit.title}»`:`«${savedTask.title}»`
+  const shiftMessage=shiftedTaskCount?`; сдвинуто ${shiftedTaskCount} ${pluralize(shiftedTaskCount,['задача','задачи','задач'])} на ${plan.shiftBy} мин`:''
+  const result=`${insertedLabel} вставлено ${plan.mode==='before'?'перед':'после'} «${store.tasks.value.find(item=>item.id===insertion.targetTaskId)?.title||plan.target.title}»${shiftMessage}`
+  flash(conflict?`${result}, но есть пересечение с «${conflict.title}»`:result)
+  syncSoon()
+}
+async function scheduleTaskFromCalendar({task,startTime,insertion}){
   const savedTask=store.tasks.value.find(item=>item.id===task?.id)
   if(!savedTask||!startTime)return
+  if(insertion){await scheduleTaskByCalendarInsertion(savedTask,insertion);return}
   const requestedStart=timeToMin(startTime),duration=Math.max(1,Number(savedTask.duration)||30)
   if(requestedStart<6*60||requestedStart+duration>24*60){flash('Это дело не помещается в шкалу 06:00–24:00');return}
   if(savedTask.chainId){
@@ -1592,7 +1673,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
           <details class="today-day-calendar card">
             <summary><span class="day-calendar-summary-copy"><strong>Весь день · 06:00–24:00</strong><small>{{dayScheduleSummary}}</small></span><span class="day-calendar-summary-count">Показать расписание</span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
             <div class="day-calendar-inline-action"><button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="13"/> Границы дня</button></div>
-            <DayCalendar :events="unifiedTimeline" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
+            <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </details>
           <div class="grid-dashboard">
             <section>
@@ -1660,7 +1741,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
             <summary><span class="day-calendar-summary-copy"><strong>Конструктор дня · {{format(parseISO(selectedDate),'d MMMM',{locale:ru})}} · 06:00–24:00</strong><small>{{dayScheduleSummary}}</small></span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
             <div class="day-calendar-plan-date"><label for="day-calendar-date">Дата планирования</label><input id="day-calendar-date" class="input" type="date" :value="selectedDate" @change="selectedDate=$event.target.value||todayKey"/><button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="13"/> Границы дня</button></div>
             <div class="day-calendar-plan-capacity" :class="{overload:capacity.overload}"><Gauge :size="16" aria-hidden="true"/><span><strong>{{Math.round(capacity.planned/60*10)/10}} / {{Math.round(capacity.available/60*10)/10}} ч</strong><small v-if="capacity.overload">Перегрузка {{capacity.overload}} мин</small><small v-else>Свободно {{capacity.free}} мин</small></span></div>
-            <DayCalendar :events="unifiedTimeline" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
+            <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </details>
           <div class="section-head"><h2>Задачи и цепочки</h2><div class="row" style="flex:0"><button class="ghost-btn" @click="openTask()"><Plus :size="16"/> Задача</button></div></div>
           <div class="filter-bar"><button v-for="f in [{id:'all',t:'Активные'},{id:'completed',t:'Завершённые'},{id:'overdue',t:'Просрочено'},{id:'blocked',t:'Ожидают'},{id:'quick',t:'≤ 15 минут'},{id:'important',t:'Важные'},{id:'waiting',t:'Ожидание'},{id:'someday',t:'Когда-нибудь'}]" :key="f.id" class="filter-chip" :class="{active:taskFilter===f.id}" @click="taskFilter=f.id">{{f.t}}<span v-if="f.id==='overdue'&&overdueTasks.length">{{overdueTasks.length}}</span></button><select v-if="allTags.length" class="select compact" v-model="selectedTag"><option value="all">Все теги</option><option v-for="tag in allTags" :key="tag">{{tag}}</option></select></div>
@@ -1703,7 +1784,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
               </div>
               <button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="15"/> Выбрать на день</button>
             </div>
-            <DayCalendar :events="calendarDayEvents" :unscheduled-tasks="calendarDayTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
+            <DayCalendar :events="calendarDayEvents" :task-units="calendarDayTaskUnits" :unscheduled-tasks="calendarDayTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </div>
         </template>
 

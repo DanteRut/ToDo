@@ -14,3 +14,19 @@
 .day-calendar-inline-action{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 12px 0;color:var(--muted);font-size:8px}.day-calendar-inline-action .ghost-btn{min-height:32px;padding:0 9px;font-size:8px;white-space:nowrap}
 @media(max-width:430px){.day-calendar-inline-action{padding:8px 8px 0}.day-calendar-inline-action .ghost-btn{min-height:30px;padding:0 7px}}
 .day-calendar-event--workout{border-color:#7656a4;background:#241b32;color:#e9ddff}
+
+/* Keep event cards compact on wide screens and readable in three columns on phones. */
+.day-calendar-grid{grid-template-columns:46px minmax(0,1fr);min-width:0}
+.day-calendar-event{min-height:42px;padding:3px 5px;gap:2px}
+.day-calendar-event strong{font-size:9px;line-height:1.15;-webkit-line-clamp:2}
+.day-calendar-event small{font-size:8px;line-height:1.1}
+.day-calendar-preview-status{display:flex;align-items:center;gap:6px;height:22px;min-width:0;overflow:hidden;padding:0 2px;color:var(--muted);font-size:8px;line-height:1.2}
+.day-calendar-preview-status strong{flex:0 0 auto;color:var(--purple2);font-size:9px;font-variant-numeric:tabular-nums}
+.day-calendar-preview-status>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.day-calendar-preview-status.active{color:var(--text)}
+.day-calendar-preview-status.invalid,.day-calendar-preview-status.invalid strong{color:#fda4af}
+.day-calendar-event--preview{z-index:5;border:1px dashed #c4b5fd;background:color-mix(in srgb,#8b5cf6 40%,var(--panel2));box-shadow:0 0 0 2px color-mix(in srgb,#8b5cf6 24%,transparent);opacity:.96;pointer-events:none}
+.day-calendar-event--preview-invalid{border-color:#fb7185;background:color-mix(in srgb,#fb7185 26%,var(--panel2));box-shadow:0 0 0 2px color-mix(in srgb,#fb7185 20%,transparent)}
+.day-calendar-event--shifted-preview{z-index:2;border-style:dashed;opacity:.5;filter:saturate(.65);pointer-events:none}
+.day-calendar-event--source-preview{opacity:.28}
+@media(max-width:760px){.day-calendar-grid{grid-template-columns:38px minmax(0,1fr);min-width:0;padding-right:3px}}
