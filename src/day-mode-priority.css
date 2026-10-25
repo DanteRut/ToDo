@@ -35,6 +35,10 @@
 .week-items .week-task.priority-medium{border-left:2px solid #f59e0b;background:#362b12;color:#fde68a}
 .week-items .week-task.priority-normal{border-left:2px solid #f4f4f5;background:#25262b;color:#f4f4f5}
 .week-items .week-task.completed{opacity:.58;text-decoration:line-through}
+.calendar-week-drag-hint{display:flex;align-items:center;gap:6px;margin:-4px 0 8px;color:var(--muted);font-size:9px;line-height:1.4}
+.calendar-week-drag-hint svg{flex:0 0 auto;color:var(--day-mode-accent)}
+.week-items .week-task.week-task-draggable{cursor:ns-resize;touch-action:none;user-select:none;-webkit-user-select:none}
+.week-items .week-task.week-task-time-dragging{position:relative;z-index:4;outline:1px solid var(--day-mode-accent);box-shadow:0 0 0 3px var(--day-mode-glow);opacity:1}
 
 /* Day complexity drives the complete application palette: canvas, surfaces, controls and accents. */
 .app-shell{

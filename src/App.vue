@@ -17,6 +17,7 @@ import {
 import { isBlocked, smartNext, nextRecurringDate, createRecurringOccurrence, stopRecurringSeries, computeChainTimes, currentTimeOfDay, buildChainSchedulePreview, chainScheduleStart, pluralize } from './utils/planner'
 import { buildDayTimeline, dayCapacity, focusLoadMinutes, focusLoadPercent, freeWindows, fromMinutes, toMinutes } from './utils/dayPlan'
 import { planCalendarInsertion } from './utils/dayCalendar'
+import { DAY_SCHEDULE_DRAG_PIXELS_PER_STEP, DAY_SCHEDULE_END, DAY_SCHEDULE_START, scheduleTimeAfterVerticalDrag } from './utils/daySchedule'
 import { classAttendanceForDate, toggleClassAttendance, withClassAttendance } from './utils/classAttendance'
 import { habitValueForDate, habitsForDate, homeworkForDate, tasksForDate, toggleHabitForDate } from './utils/dateContext'
 import { buildStudyWeekSummary } from './utils/studyWeek'
@@ -82,6 +83,9 @@ const expandedTodayChecklists = ref([]), expandedTodayChains = ref([]), backups 
 const toast = ref(''), lastDeleted = ref(null), updateAvailable = ref(false), homeworkSaving = ref(false), homeworkError = ref('')
 const taskFilter = ref('all'), selectedTag = ref('all')
 const calendarMonth = ref(new Date()), calendarMode = ref('month'), calendarDayScope = ref('all')
+const weekTaskTimeDrag = ref(null)
+let suppressedWeekTaskClickId = null
+let suppressedWeekTaskClickTimer
 const selectedDate = ref(store.today())
 const todayDate = ref(store.today())
 const clockNow = ref(new Date())
@@ -870,6 +874,83 @@ function lessonKindIcon(kind){if(kind?.includes('Лекция'))return BookOpen;
 function dayRecords(date){const key=format(date,'yyyy-MM-dd');return [...store.tasks.value.filter(t=>t.date===key),...store.chains.value.filter(c=>c.date===key),...classesForDate(key).map(item=>({...item,id:`class-${key}-${item.id}`,type:'class',color:'#38bdf8'}))]}
 function taskPriorityClass(task){return task?.priority==='high'?'priority-high':task?.priority==='medium'?'priority-medium':'priority-normal'}
 function calendarRecordColor(record){if(record.type==='class')return '#38bdf8';if(record.type==='chain')return record.color||'#8b5cf6';if(record.done)return '#34d399';return record.priority==='high'?'#ef4444':record.priority==='medium'?'#f59e0b':'#f4f4f5'}
+function canAdjustWeekTaskTime(task){return Boolean(task&&!task.done&&!['completed','cancelled','archived','someday','waiting'].includes(task.status))}
+function weekTaskDragBounds(task){
+  const duration=Math.max(1,Number(task.duration)||30)
+  if(!task.chainId)return{duration,minStart:DAY_SCHEDULE_START,maxStart:DAY_SCHEDULE_END-duration}
+  const members=tasksForChain(task.chainId),index=members.findIndex(member=>member.id===task.id)
+  if(index<0)return{duration,minStart:DAY_SCHEDULE_START,maxStart:DAY_SCHEDULE_END-duration}
+  const offset=members.slice(0,index).reduce((sum,member)=>sum+(Number(member.duration)||30),0)
+  const chainDuration=members.reduce((sum,member)=>sum+(Number(member.duration)||30),0)
+  return{duration,minStart:DAY_SCHEDULE_START+offset,maxStart:DAY_SCHEDULE_END-chainDuration+offset}
+}
+function weekTaskTimeLabel(task){
+  const drag=weekTaskTimeDrag.value
+  return drag?.taskId===task.id?drag.previewTime:(task.startTime||'—')
+}
+function beginWeekTaskTimeDrag(task,date,event){
+  if(!canAdjustWeekTaskTime(task)||event.button!==0||event.isPrimary===false)return
+  const bounds=weekTaskDragBounds(task)
+  const initialTime=scheduleTimeAfterVerticalDrag(task.startTime||'09:00',0,bounds)
+  weekTaskTimeDrag.value={taskId:task.id,dateKey:format(date,'yyyy-MM-dd'),pointerId:event.pointerId,startY:event.clientY,initialTime,previewTime:initialTime,bounds,moved:false}
+  try{event.currentTarget?.setPointerCapture(event.pointerId)}catch{ /* Pointer capture is optional; pointer events still update the preview. */ }
+}
+function updateWeekTaskTimeDrag(event){
+  const drag=weekTaskTimeDrag.value
+  if(!drag||drag.pointerId!==event.pointerId)return
+  const deltaY=event.clientY-drag.startY
+  drag.moved=Math.abs(deltaY)>=DAY_SCHEDULE_DRAG_PIXELS_PER_STEP/2
+  drag.previewTime=scheduleTimeAfterVerticalDrag(drag.initialTime,deltaY,drag.bounds)
+}
+function handleWeekTaskClick(task,event){
+  if(suppressedWeekTaskClickId!==task.id)return
+  event.preventDefault()
+  event.stopPropagation()
+  suppressedWeekTaskClickId=null
+  clearTimeout(suppressedWeekTaskClickTimer)
+}
+async function scheduleWeekCalendarTaskTime(task,dateKey,startTime){
+  const savedTask=store.tasks.value.find(item=>item.id===task?.id)
+  if(!savedTask||!startTime)return
+  if(!savedTask.chainId){await scheduleWeeklyTask({task:savedTask,dateKey,startTime});return}
+  const chain=store.chains.value.find(item=>item.id===savedTask.chainId),members=tasksForChain(savedTask.chainId),index=members.findIndex(member=>member.id===savedTask.id)
+  const day=weeklyPlannerDays.value.find(item=>item.key===dateKey)
+  if(!chain||index<0||!day){flash('Не удалось найти всю цепочку для переноса');return}
+  const requestedStart=timeToMinute(startTime),offset=members.slice(0,index).reduce((sum,member)=>sum+(Number(member.duration)||30),0)
+  const totalDuration=members.reduce((sum,member)=>sum+(Number(member.duration)||30),0),chainStart=requestedStart-offset
+  if(requestedStart===null||chainStart<DAY_SCHEDULE_START||chainStart+totalDuration>DAY_SCHEDULE_END){flash('Цепочка целиком не помещается в расписание 06:00–24:00');return}
+  const memberIds=new Set(members.map(member=>member.id)),otherEvents=day.events.filter(item=>!memberIds.has(item.source?.id))
+  let cursor=chainStart
+  for(const member of members){
+    const duration=Math.max(1,Number(member.duration)||30)
+    if(hasScheduleConflict(minToTime(cursor),duration,otherEvents)){flash('Это время уже занято');return}
+    cursor+=duration
+  }
+  const chainStartTime=minToTime(chainStart)
+  await store.save({...chain,date:dateKey,startTime:chainStartTime})
+  await reflowChain(chain.id,chainStartTime)
+  flash(`Цепочка «${chain.title}» перемещена · ${startTime}`)
+  syncSoon()
+}
+async function finishWeekTaskTimeDrag(event){
+  const drag=weekTaskTimeDrag.value
+  if(!drag||drag.pointerId!==event.pointerId)return
+  if(drag.moved){
+    clearTimeout(suppressedWeekTaskClickTimer)
+    suppressedWeekTaskClickId=drag.taskId
+    suppressedWeekTaskClickTimer=setTimeout(()=>{if(suppressedWeekTaskClickId===drag.taskId)suppressedWeekTaskClickId=null},500)
+  }
+  try{
+    if(drag.moved&&drag.previewTime!==drag.initialTime){
+      const task=store.tasks.value.find(item=>item.id===drag.taskId)
+      if(task&&canAdjustWeekTaskTime(task))await scheduleWeekCalendarTaskTime(task,drag.dateKey,drag.previewTime)
+    }
+  }finally{weekTaskTimeDrag.value=null}
+}
+function cancelWeekTaskTimeDrag(event){
+  if(!weekTaskTimeDrag.value||weekTaskTimeDrag.value.pointerId!==event.pointerId)return
+  weekTaskTimeDrag.value=null
+}
 function normalizeSubjectName(subject){return String(subject||'').normalize('NFKC').trim().replace(/\s+/g,' ').toLocaleLowerCase('ru')}
 function homeworkForOccurrence(lesson,date){const key=typeof date==='string'?date:format(date,'yyyy-MM-dd'),subjectKey=normalizeSubjectName(lesson.subject);return[...store.homeworks.value.filter(item=>item.lessonId===lesson.id&&item.dueDate===key),...projectHomeworkAssignments.value.filter(item=>item.dueDate===key&&normalizeSubjectName(item.subject)===subjectKey)]}
 function nextLessonDate(lesson,fromDate){return nextClassOccurrence(lesson.id,fromDate)}
@@ -1634,7 +1715,7 @@ onMounted(async()=>{installDialogAccessibility();applyTheme(currentTheme.value);
   const hour=new Date().getHours();const reviewDue=hour>=19?!todayReview.value?.eveningAt:!todayReview.value?.morningAt;if(selectedDate.value===todayKey.value&&reviewDue&&!workoutDraft&&!homeworkDraft)setTimeout(()=>openReview(hour>=19?'evening':'morning'),500)
   checkNotifications();notificationInterval=setInterval(checkNotifications,60000)
   document.addEventListener('visibilitychange',handleFocusVisibilityChange);window.addEventListener('focus',handleFocusWindowFocus);window.addEventListener('pageshow',handleFocusPageShow);window.addEventListener('pagehide',handleFocusPageHide);window.addEventListener('momentum:update-ready',()=>{updateAvailable.value=true;toast.value='Доступна новая версия'});window.addEventListener('momentum:offline-ready',()=>flash('Приложение готово к работе без сети'))})
-onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.removeEventListener('visibilitychange',handleFocusVisibilityChange);window.removeEventListener('focus',handleFocusWindowFocus);window.removeEventListener('pageshow',handleFocusPageShow);window.removeEventListener('pagehide',handleFocusPageHide);clearInterval(timerInterval);clearInterval(focusInterval);clearInterval(ritualInterval);clearInterval(notificationInterval);clearTimeout(syncTimer)})
+onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.removeEventListener('visibilitychange',handleFocusVisibilityChange);window.removeEventListener('focus',handleFocusWindowFocus);window.removeEventListener('pageshow',handleFocusPageShow);window.removeEventListener('pagehide',handleFocusPageHide);clearInterval(timerInterval);clearInterval(focusInterval);clearInterval(ritualInterval);clearInterval(notificationInterval);clearTimeout(syncTimer);clearTimeout(suppressedWeekTaskClickTimer);weekTaskTimeDrag.value=null})
 </script>
 
 <template>
@@ -1763,6 +1844,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
               <button type="button" class="icon-btn" :aria-label="calendarMode==='month'?'Следующий месяц':calendarMode==='week'?'Следующая неделя':'Следующий день'" @click="moveCalendarPeriod(1)"><ChevronRight :size="17"/></button>
             </div>
           </div>
+          <p v-if="calendarMode==='week'" class="calendar-week-drag-hint"><GripVertical :size="13" aria-hidden="true"/><span>Перетаскивай задачу вверх или вниз: время меняется шагами по 15 минут; если времени нет, отсчёт начнётся с 09:00.</span></p>
           <div v-if="calendarMode!=='day'" class="calendar-overview-scroll" :class="{'calendar-week-scroll':calendarMode==='week'}">
             <div class="calendar-grid" :class="{'week-grid':calendarMode==='week'}">
               <div v-for="weekday in ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']" :key="weekday" class="weekday">{{weekday}}</div>
@@ -1771,7 +1853,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
                 <div class="dots"><span v-for="record in dayRecords(date).slice(0,8)" :key="record.id" class="dot" :style="{background:calendarRecordColor(record)}"></span></div>
                 <div v-if="calendarMode==='week'" class="week-items">
                   <div v-for="lesson in classesForDate(date)" :key="lesson.id" class="week-class">{{lesson.start}} {{lesson.subject}}</div>
-                  <div v-for="task in store.tasks.value.filter(item=>item.date===format(date,'yyyy-MM-dd')&&!['cancelled','archived'].includes(item.status)).slice(0,5)" :key="task.id" class="week-task" :class="[taskPriorityClass(task),{completed:task.done}]" :title="task.title">{{task.startTime||'—'}} {{task.title}}</div>
+                  <div v-for="task in store.tasks.value.filter(item=>item.date===format(date,'yyyy-MM-dd')&&!['cancelled','archived'].includes(item.status)).slice(0,5)" :key="task.id" class="week-task" :class="[taskPriorityClass(task),{completed:task.done,'week-task-draggable':canAdjustWeekTaskTime(task),'week-task-time-dragging':weekTaskTimeDrag?.taskId===task.id}]" :title="canAdjustWeekTaskTime(task)?`${task.title} · перетащи вверх/вниз, шаг 15 минут`:task.title" @pointerdown.stop="beginWeekTaskTimeDrag(task,date,$event)" @pointermove.stop="updateWeekTaskTimeDrag($event)" @pointerup.stop="finishWeekTaskTimeDrag($event)" @pointercancel.stop="cancelWeekTaskTimeDrag($event)" @click="handleWeekTaskClick(task,$event)">{{weekTaskTimeLabel(task)}} {{task.title}}</div>
                 </div>
               </button>
             </div>
@@ -1880,6 +1962,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
             <div class="field"><label>Время</label><input type="time" class="input" v-model="editingTask.startTime"/></div>
             <div class="field"><label>Минут</label><input type="number" class="input" min="1" v-model="editingTask.duration"/></div>
           </div>
+          <div class="field task-deadline-field"><label>Дата дедлайна</label><input type="date" class="input" v-model="editingTask.dueDate" aria-label="Дата дедлайна"/></div>
           <div class="row task-core-fields">
             <div class="field">
               <label>Приоритет</label>
