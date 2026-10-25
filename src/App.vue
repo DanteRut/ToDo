@@ -1467,10 +1467,10 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
           </details>
           <div class="grid-dashboard">
             <section>
-              <div class="card hero-card">
-                <div class="eyebrow">Фокус дня</div>
-                <h2 style="font-size:21px;margin:7px 0 5px">{{activeTask?.title || 'День свободен — выбери главное'}}</h2>
-                <div style="font-size:11px;color:#858894">{{activeTask ? `${activeTask.startTime||'Без времени'} · ${activeTask.duration||0} мин · ${stageLabel(activeTask.stage)}` : 'Добавь цепочку действий, и план станет ясным'}}</div><span v-if="taskProjectInfo(activeTask)" class="task-project-badge focus-project-badge" :style="{'--task-project-color':taskProjectInfo(activeTask).color}" :title="`Проект: ${taskProjectInfo(activeTask).name}`"><FolderKanban :size="11" aria-hidden="true"/><span>{{taskProjectInfo(activeTask).name}}</span></span>
+              <div class="card hero-card today-focus-card">
+                <div class="eyebrow today-focus-eyebrow">Фокус дня</div>
+                <h2 class="today-focus-title">{{activeTask?.title || 'День свободен — выбери главное'}}</h2>
+                <div class="today-focus-meta"><span>{{activeTask ? `${activeTask.startTime||'Без времени'} · ${activeTask.duration||0} мин` : 'Добавь цепочку действий, и план станет ясным'}}</span><span v-if="taskProjectInfo(activeTask)" class="task-project-badge focus-project-badge" :style="{'--task-project-color':taskProjectInfo(activeTask).color}" :title="`Проект: ${taskProjectInfo(activeTask).name}`"><FolderKanban :size="11" aria-hidden="true"/><span>{{taskProjectInfo(activeTask).name}}</span></span></div>
                 <div class="progress-row"><div class="progress-track"><div class="progress-fill" :style="{width:progress+'%'}"></div></div><div class="progress-label">{{progress}}%</div></div>
                 <div v-if="activeTask" class="focus-controls"><button type="button" class="focus-change" aria-haspopup="dialog" @click.stop="openFocusPicker"><SlidersHorizontal :size="14"/> Сменить фокус</button><button class="focus-launch" @click="launchFocusMode"><Maximize2 :size="15"/> Режим «Сейчас»</button></div>
               </div>
