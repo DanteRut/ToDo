@@ -31,6 +31,12 @@ describe('weekly wake and rest planning', () => {
     expect(hasScheduleConflict('23:30', 45)).toBe(true)
   })
 
+  it('does not block time for classes marked as not attending', () => {
+    const classEvent = { startTime: '10:05', endTime: '11:25', blocksTime: false }
+    expect(hasScheduleConflict('10:30', 30, [classEvent])).toBe(false)
+    expect(hasScheduleConflict('10:30', 30, [{ ...classEvent, blocksTime: true }])).toBe(true)
+  })
+
   it('checks conflicts with timed events and existing rest blocks', () => {
     const events = [
       { startTime: '09:15', duration: 50 },

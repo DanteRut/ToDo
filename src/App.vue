@@ -15,7 +15,8 @@ import {
   Bell, FolderKanban, Ruler, Navigation, FastForward, Monitor, Keyboard
 } from 'lucide-vue-next'
 import { isBlocked, smartNext, nextRecurringDate, createRecurringOccurrence, stopRecurringSeries, computeChainTimes, currentTimeOfDay, buildChainSchedulePreview, chainScheduleStart, pluralize } from './utils/planner'
-import { buildDayTimeline, dayCapacity, freeWindows, fromMinutes, toMinutes } from './utils/dayPlan'
+import { buildDayTimeline, dayCapacity, focusLoadMinutes, focusLoadPercent, freeWindows, fromMinutes, toMinutes } from './utils/dayPlan'
+import { classAttendanceForDate, toggleClassAttendance, withClassAttendance } from './utils/classAttendance'
 import { habitValueForDate, habitsForDate, homeworkForDate, tasksForDate, toggleHabitForDate } from './utils/dateContext'
 import { buildStudyWeekSummary } from './utils/studyWeek'
 import { planEveningReviewSave, previousEveningMessage, ritualTaskDate } from './utils/dailyReview'
@@ -88,7 +89,7 @@ const chainDraftAvailable = ref(false), focusInboxText = ref(''), focusDistracti
 const inboxProcess = reactive({actionable:true,projectId:null,status:'planned',date:store.today(),duration:30,notes:''})
 const selectedWorkout = ref(null), selectedSession = ref(null), editingSession = ref(null), historyEditing = ref(false), workoutTab = ref('programs'), selectedExerciseStat = ref('all'), workoutSaving = ref(false)
 const timerSeconds = ref(0), timerRunning = ref(false)
-const reviewForm = reactive({ energy:3, mainResult:'', gratitude:'', selectedSubtasks:[], activeProhibitionIds:[], dayMode:'normal', wakeTime:'', workEndTime:'', sleepTime:'', eveningScore:3, lessons:'', correction:'', intention:'', tomorrowMessage:'' })
+const reviewForm = reactive({ energy:3, mainResult:'', gratitude:'', selectedSubtasks:[], attendingClassIds:[], activeProhibitionIds:[], dayMode:'normal', wakeTime:'', workEndTime:'', sleepTime:'', eveningScore:3, lessons:'', correction:'', intention:'', tomorrowMessage:'' })
 const ritualTimer = reactive({habit:null,seconds:0,running:false})
 let ritualInterval
 let notificationInterval
@@ -129,9 +130,9 @@ const todayKey = computed(() => todayDate.value)
 const dayTasks = computed(() => tasksForDate(store.tasks.value,selectedDate.value).sort(sortTask))
 const selectedClasses = computed(() => classesForDate(selectedDate.value))
 const nextClass = computed(() => {
-  if(selectedDate.value!==todayKey.value)return selectedClasses.value[0]||null
+  if(selectedDate.value!==todayKey.value)return attendingClasses.value[0]||null
   const minute=clockNow.value.getHours()*60+clockNow.value.getMinutes()
-  return selectedClasses.value.find(lesson=>timeToMin(lesson.end)>minute)||null
+  return attendingClasses.value.find(lesson=>timeToMin(lesson.end)>minute)||null
 })
 const nextClassHint = computed(() => {
   if(!nextClass.value)return ''
@@ -185,6 +186,48 @@ const studyWeekStart = computed(() => startOfWeek(parseISO(selectedDate.value), 
 const studyWeekDays = computed(() => Array.from({length:5},(_,i)=>addDays(studyWeekStart.value,i)))
 const weeklyPlanWeekStart = computed(() => format(studyWeekStart.value,'yyyy-MM-dd'))
 const weeklyPlanRecord = computed(() => store.state.records.find(record=>record.type==='weeklyPlan'&&record.weekStart===weeklyPlanWeekStart.value)||null)
+function weeklyPlanForDate(dateKey) {
+  const weekStart = format(startOfWeek(parseISO(dateKey), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+  return store.state.records.find(record => record.type === 'weeklyPlan' && record.weekStart === weekStart) || null
+}
+function attendingClassIdsForDate(dateKey, lessons = classesForDate(dateKey), plan = weeklyPlanForDate(dateKey)) {
+  return classAttendanceForDate(dateKey, lessons, plan?.classAttendance)
+}
+function weeklyBlockTimelineItems(dateKey, plan = weeklyPlanForDate(dateKey)) {
+  const workouts = (plan?.workoutBlocks || [])
+    .filter(block => block.dateKey === dateKey && block.startTime)
+    .map(block => {
+      const start = toMinutes(block.startTime)
+      const title = block.title || store.workouts.value.find(workout => workout.id === block.workoutId)?.title || 'Тренировка'
+      return { id: `workout-${block.id}`, type: 'workout', title, start, end: start + (Number(block.duration) || 60), source: block }
+    })
+  const rests = (plan?.restBlocks || [])
+    .filter(block => block.dateKey === dateKey && block.startTime)
+    .map(block => {
+      const start = toMinutes(block.startTime)
+      const activity = REST_ACTIVITIES.find(option => option.id === block.activityId)
+      return {
+        id: `rest-${block.id}`,
+        type: 'rest',
+        title: activity?.title || block.title || 'Отдых',
+        start,
+        end: start + (Number(block.duration) || activity?.duration || 30),
+        source: block
+      }
+    })
+  return [...workouts, ...rests]
+}
+const attendingClassIds = computed(() => {
+  if (reviewOpen.value && reviewMode.value === 'morning' && reviewDate.value === selectedDate.value) {
+    return classAttendanceForDate(selectedDate.value, selectedClasses.value, { [selectedDate.value]: reviewForm.attendingClassIds })
+  }
+  return attendingClassIdsForDate(selectedDate.value, selectedClasses.value, weeklyPlanRecord.value)
+})
+const attendingClassIdSet = computed(() => new Set(attendingClassIds.value))
+const attendingClasses = computed(() => selectedClasses.value.filter(lesson => attendingClassIdSet.value.has(lesson.id)))
+const selectedDayWorkoutBlocks = computed(() => (weeklyPlanRecord.value?.workoutBlocks || []).filter(block => block.dateKey === selectedDate.value))
+const selectedDayWorkoutMinutes = computed(() => selectedDayWorkoutBlocks.value.reduce((sum, block) => sum + (Number(block.duration) || 60), 0))
+const reviewClasses = computed(() => classesForDate(reviewDate.value))
 const isCurrentSaturday = computed(() => parseISO(todayKey.value).getDay()===6)
 const nextPlanningWeekStart = computed(() => format(addDays(startOfWeek(parseISO(todayKey.value),{weekStartsOn:1}),7),'yyyy-MM-dd'))
 const saturdayNextWeekPlan = computed(() => store.state.records.find(record=>record.type==='weeklyPlan'&&record.weekStart===nextPlanningWeekStart.value)||null)
@@ -195,16 +238,21 @@ const weeklyPlannerDays = computed(() => Array.from({ length: 7 }, (_, index) =>
   const dateKey = format(date, 'yyyy-MM-dd')
   const weekday = date.getDay()
   const scheduledClasses = classesForDate(date)
+  const attendingIds = new Set(attendingClassIdsForDate(dateKey, scheduledClasses, weeklyPlanRecord.value))
+  const attendingLessons = scheduledClasses.filter(lesson => attendingIds.has(lesson.id))
   const classes = scheduledClasses.map(lesson => ({
     id: `class:${dateKey}:${lesson.id}`,
+    classId: lesson.id,
     type: 'class',
     title: lesson.subject,
     startTime: lesson.start,
     endTime: lesson.end,
     duration: timeToMinute(lesson.end) - timeToMinute(lesson.start),
-    detail: `${lesson.pair} пара · ауд. ${lesson.room}`
+    detail: `${lesson.pair} пара · ауд. ${lesson.room}`,
+    attending: attendingIds.has(lesson.id),
+    blocksTime: attendingIds.has(lesson.id)
   }))
-  const firstClassMinute = scheduledClasses.length ? timeToMinute(scheduledClasses[0].start) : null
+  const firstClassMinute = attendingLessons.length ? timeToMinute(attendingLessons[0].start) : null
   const commuteStart = firstClassMinute === null ? null : Math.max(0, firstClassMinute - 50)
   const commute = commuteStart === null ? [] : [{
     id: `commute:${dateKey}`,
@@ -283,6 +331,8 @@ const weeklyPlannerDays = computed(() => Array.from({ length: 7 }, (_, index) =>
     weekdayNumber: weekday,
     dateLabel: format(date, 'd MMM', { locale: ru }),
     isToday: dateKey === todayKey.value,
+    classCount: scheduledClasses.length,
+    attendingClassCount: attendingLessons.length,
     dayMode: dayModeForDate(dateKey,dailyReview,weeklyPlanRecord.value),
     events
   }
@@ -299,7 +349,6 @@ const weeklyPlanningTasks = computed(() => {
 const dayChains = computed(() => store.chains.value.filter(c => c.date === selectedDate.value).sort((a,b)=>(a.order??Number.MAX_SAFE_INTEGER)-(b.order??Number.MAX_SAFE_INTEGER)||(a.startTime||'').localeCompare(b.startTime||'')))
 const looseTasks = computed(() => dayTasks.value.filter(t => !t.chainId))
 const completedCount = computed(() => dayTasks.value.filter(t => t.done).length)
-const progress = computed(() => dayTasks.value.length ? Math.round(completedCount.value/dayTasks.value.length*100) : 0)
 const focusCandidates = computed(() => store.tasks.value.filter(task=>!task.done&&task.date===selectedDate.value&&!['someday','waiting','cancelled','archived'].includes(task.status)).sort((a,b)=>(a.startTime||'99:99').localeCompare(b.startTime||'99:99')))
 const focusRecord = computed(() => store.state.records.find(record=>record.type==='dayFocus'&&record.date===selectedDate.value))
 const activeTask = computed(() => {
@@ -369,14 +418,49 @@ const monthDays = computed(() => {
   return Array.from({length:42}, (_,i)=>addDays(gridStart,i))
 })
 const unifiedTimeline = computed(() => {
-  const items=buildDayTimeline(dayTasks.value,selectedClasses.value,50)
-  for(const item of plannedHomework.value.filter(homework=>!homework.done&&homework.plannedTime)){const start=toMinutes(item.plannedTime);items.push({id:`homework-${item.id}`,type:'homework',title:`ДЗ · ${item.title}`,start,end:start+(Number(item.estimatedMinutes)||45),source:item})}
-  const weekday=parseISO(selectedDate.value).getDay()
-  for(const habit of trackableHabits.value.filter(item=>item.preferredTime&&(item.schedule||[0,1,2,3,4,5,6]).includes(weekday))){const start=toMinutes(habit.preferredTime);items.push({id:`habit-${habit.id}`,type:'habit',title:habit.title,start,end:start+(Number(habit.timerMinutes)||10),source:habit})}
-  for(const item of items){if(item.type==='task'&&item.source?.chainId)item.chainTitle=store.chains.value.find(chain=>chain.id===item.source.chainId)?.title||'';if(item.type==='task'&&item.source?.projectId)item.projectTitle=taskProjectInfoById.value.get(item.source.projectId)?.name||''}
-  return items.sort((a,b)=>a.start-b.start||a.end-b.end)
+  const items = buildDayTimeline(dayTasks.value, attendingClasses.value, 50)
+  for (const item of plannedHomework.value.filter(homework => !homework.done && homework.plannedTime)) {
+    const start = toMinutes(item.plannedTime)
+    items.push({ id: `homework-${item.id}`, type: 'homework', title: `ДЗ · ${item.title}`, start, end: start + (Number(item.estimatedMinutes) || 45), source: item })
+  }
+  const weekday = parseISO(selectedDate.value).getDay()
+  for (const habit of trackableHabits.value.filter(item => item.preferredTime && (item.schedule || [0, 1, 2, 3, 4, 5, 6]).includes(weekday))) {
+    const start = toMinutes(habit.preferredTime)
+    items.push({ id: `habit-${habit.id}`, type: 'habit', title: habit.title, start, end: start + (Number(habit.timerMinutes) || 10), source: habit })
+  }
+  items.push(...weeklyBlockTimelineItems(selectedDate.value, weeklyPlanRecord.value))
+  for (const item of items) {
+    if (item.type === 'task' && item.source?.chainId) item.chainTitle = store.chains.value.find(chain => chain.id === item.source.chainId)?.title || ''
+    if (item.type === 'task' && item.source?.projectId) item.projectTitle = taskProjectInfoById.value.get(item.source.projectId)?.name || ''
+  }
+  return items.sort((a, b) => a.start - b.start || a.end - b.end)
 })
-const capacity = computed(() => {const base=dayCapacity(dayTasks.value,selectedClasses.value,50);const homeworkMinutes=plannedHomework.value.filter(item=>!item.done&&!item.sourceTaskId).reduce((sum,item)=>sum+(Number(item.estimatedMinutes)||45),0);const weekday=parseISO(selectedDate.value).getDay();const ritualMinutes=trackableHabits.value.filter(item=>(item.schedule||[0,1,2,3,4,5,6]).includes(weekday)&&habitValue(item,selectedDate.value)<item.target).reduce((sum,item)=>sum+(Number(item.timerMinutes)||0),0);const planned=base.planned+homeworkMinutes+ritualMinutes;return{...base,planned,free:Math.max(0,base.available-planned),overload:Math.max(0,planned-base.available)}})
+const capacity = computed(() => {
+  const base = dayCapacity(dayTasks.value, attendingClasses.value, 50)
+  const homeworkMinutes = plannedHomework.value
+    .filter(item => !item.done && !item.sourceTaskId)
+    .reduce((sum, item) => sum + (Number(item.estimatedMinutes) || 45), 0)
+  const weekday = parseISO(selectedDate.value).getDay()
+  const ritualMinutes = trackableHabits.value
+    .filter(item => (item.schedule || [0, 1, 2, 3, 4, 5, 6]).includes(weekday) && habitValue(item, selectedDate.value) < item.target)
+    .reduce((sum, item) => sum + (Number(item.timerMinutes) || 0), 0)
+  const workoutMinutes = selectedDayWorkoutMinutes.value
+  const planned = base.planned + homeworkMinutes + ritualMinutes + workoutMinutes
+  return {
+    ...base,
+    workoutMinutes,
+    planned,
+    free: Math.max(0, base.available - planned),
+    overload: Math.max(0, planned - base.available)
+  }
+})
+const workloadMinutes = computed(() => focusLoadMinutes({
+  tasks: dayTasks.value,
+  classes: attendingClasses.value,
+  workouts: selectedDayWorkoutBlocks.value,
+  homework: plannedHomework.value
+}))
+const workloadPercent = computed(() => focusLoadPercent(workloadMinutes.value))
 const availableWindows = computed(() => freeWindows(unifiedTimeline.value).filter(window => window.duration >= 15))
 const suggestedForWindows = computed(() => availableWindows.value.map(window => ({ ...window, tasks: store.tasks.value.filter(task=>!task.done&&!task.startTime&&task.date<=selectedDate.value&&(task.duration||30)<=window.duration&&!isBlocked(task,store.tasks.value)).sort((a,b)=>(b.priority==='high')-(a.priority==='high')).slice(0,3) })).filter(window=>window.tasks.length))
 const deadlines = computed(() => store.tasks.value.filter(task=>!task.done&&task.deadlineKind).sort(compareDeadlines))
@@ -400,9 +484,12 @@ const morningSelectedTasks = computed(() => {
   return store.tasks.value.filter(task=>selectedIds.has(task.id)&&task.date===selectedDate.value&&!task.done&&!['cancelled','archived'].includes(task.status)).sort(sortTask)
 })
 const morningSelectedTimeline = computed(() => {
-  const events=buildDayTimeline(morningSelectedTasks.value.filter(task=>task.startTime),selectedClasses.value,50)
-  for(const event of events){if(event.type==='task'&&event.source?.projectId)event.projectTitle=taskProjectInfoById.value.get(event.source.projectId)?.name||''}
-  return events
+  const events = buildDayTimeline(morningSelectedTasks.value.filter(task => task.startTime), attendingClasses.value, 50)
+  events.push(...weeklyBlockTimelineItems(selectedDate.value, weeklyPlanRecord.value))
+  for (const event of events) {
+    if (event.type === 'task' && event.source?.projectId) event.projectTitle = taskProjectInfoById.value.get(event.source.projectId)?.name || ''
+  }
+  return events.sort((a, b) => a.start - b.start || a.end - b.end)
 })
 const calendarDayEvents = computed(() => calendarDayScope.value==='selected'?morningSelectedTimeline.value:unifiedTimeline.value)
 const calendarDayTasks = computed(() => calendarDayScope.value==='selected'?morningSelectedTasks.value.filter(task=>!task.startTime):planCalendarUnscheduledTasks.value)
@@ -448,6 +535,7 @@ function openReview(mode) {
     mainResult: saved.mainResult || '',
     gratitude: saved.gratitude || '',
     selectedSubtasks: [...(saved.selectedSubtasks || [])],
+    attendingClassIds: attendingClassIdsForDate(reviewDate.value, classesForDate(reviewDate.value), weeklyPlanForDate(reviewDate.value)),
     activeProhibitionIds,
     dayMode: dayModeForDate(reviewDate.value,saved,weeklyPlanRecord.value),
     eveningScore: saved.eveningScore || 3,
@@ -491,6 +579,12 @@ function setEveningReviewToPreviousDay() {
 }
 async function addRitualTask(mode){const title=reviewQuickTaskTitle.value.trim();if(!title)return;reviewQuickTaskTitle.value='';const baseDate=mode==='evening'?(reviewDate.value||selectedDate.value):selectedDate.value,date=ritualTaskDate(baseDate,mode);const task=await store.add({type:'task',title,date,startTime:'',duration:30,priority:'normal',stage:'action',done:false,tags:[],notes:'',recurrence:'none',dependsOn:[],subtasks:[],energy:'medium',projectId:null,deadlineKind:'',dueDate:'',status:'planned',scheduling:'flexible',order:Date.now()});if(mode==='morning'){const key=`task:${task.id}`;if(!reviewForm.selectedSubtasks.includes(key))reviewForm.selectedSubtasks.push(key)}flash(mode==='morning'?'Задача добавлена в утренний план':'Задача добавлена на завтра');syncSoon()}
 function toggleRitualSubtask(key){const index=reviewForm.selectedSubtasks.indexOf(key);index<0?reviewForm.selectedSubtasks.push(key):reviewForm.selectedSubtasks.splice(index,1)}
+function toggleMorningClassAttendance(lessonId, checked) {
+  const selectedIds = new Set(reviewForm.attendingClassIds)
+  if (checked) selectedIds.add(lessonId)
+  else selectedIds.delete(lessonId)
+  reviewForm.attendingClassIds = reviewClasses.value.filter(lesson => selectedIds.has(lesson.id)).map(lesson => lesson.id)
+}
 async function saveEveningReview(){
   const date=reviewDate.value||selectedDate.value,sourceId=reviewSourceRecord.value?.id
   const source=sourceId?store.state.records.find(record=>record.id===sourceId):null
@@ -516,6 +610,7 @@ async function saveReview(){
   if (reviewMode.value === 'morning') {
     const formFields = { ...reviewForm }
     delete formFields.activeProhibitionIds
+    delete formFields.attendingClassIds
     const record = {
       ...(todayReview.value || {}),
       type: 'dailyReview',
@@ -525,6 +620,7 @@ async function saveReview(){
       morningAt: new Date().toISOString()
     }
     todayReview.value ? await store.save(record) : await store.add(record)
+    await saveWeeklyClassAttendance(selectedDate.value, reviewForm.attendingClassIds)
     await saveWeeklyDayMode({dateKey:selectedDate.value,mode:reviewForm.dayMode})
   } else {
     routineDate = await saveEveningReview()
@@ -787,7 +883,20 @@ function openChainTemplate(template=null){schedulePreview.value=null;const start
 function addTemplatePreparation(){editingChainTemplate.value.preparations.push({id:uid(),title:'',duration:5})}
 function removeTemplatePreparation(index){editingChainTemplate.value.preparations.splice(index,1)}
 function toggleChainBuilderTask(id){const selected=editingChainTemplate.value.selectedTaskIds;editingChainTemplate.value.selectedTaskIds=selected.includes(id)?selected.filter(value=>value!==id):[...selected,id]}
-function fixedBlocksForDate(date){const blocks=buildDayTimeline([],classesForDate(date),50).map(item=>({title:item.title,start:item.start,end:item.end,type:item.type}));for(const task of store.tasks.value.filter(item=>item.date===date&&!item.chainId&&item.scheduling==='fixed'&&item.startTime))blocks.push({title:task.title,start:toMinutes(task.startTime),end:toMinutes(task.startTime)+(Number(task.duration)||0),type:'task'});for(const chain of store.chains.value.filter(item=>item.date===date))blocks.push({title:chain.title,start:toMinutes(chain.startTime),end:toMinutes(chainEndTime(chain)),type:'chain'});return blocks.sort((a,b)=>a.start-b.start)}
+function fixedBlocksForDate(date) {
+  const dateKey = typeof date === 'string' ? date : format(date, 'yyyy-MM-dd')
+  const scheduledClasses = classesForDate(date)
+  const attendingIds = new Set(attendingClassIdsForDate(dateKey, scheduledClasses, weeklyPlanForDate(dateKey)))
+  const attendingLessons = scheduledClasses.filter(lesson => attendingIds.has(lesson.id))
+  const blocks = buildDayTimeline([], attendingLessons, 50).map(item => ({ title: item.title, start: item.start, end: item.end, type: item.type }))
+  for (const task of store.tasks.value.filter(item => item.date === dateKey && !item.chainId && item.scheduling === 'fixed' && item.startTime)) {
+    blocks.push({ title: task.title, start: toMinutes(task.startTime), end: toMinutes(task.startTime) + (Number(task.duration) || 0), type: 'task' })
+  }
+  for (const chain of store.chains.value.filter(item => item.date === dateKey)) {
+    blocks.push({ title: chain.title, start: toMinutes(chain.startTime), end: toMinutes(chainEndTime(chain)), type: 'chain' })
+  }
+  return blocks.sort((a, b) => a.start - b.start)
+}
 function previewChainSchedule(){const template=editingChainTemplate.value,date=template.useDate||selectedDate.value,duration=(template.preparations||[]).reduce((sum,step)=>sum+(Number(step.duration)||0),0)+(template.selectedTaskIds||[]).reduce((sum,id)=>sum+(Number(store.tasks.value.find(task=>task.id===id)?.duration)||0),0),requested=toMinutes(template.useTime||currentTimeOfDay());schedulePreview.value=buildChainSchedulePreview({date,duration,requested,blocks:fixedBlocksForDate(date)})}
 async function persistChainTemplate(template) {
   const record = toSavedChainTemplate(template)
@@ -1193,6 +1302,26 @@ async function saveWeeklyWakeStep({ dateKey, value }) {
   }, false, weekStart)
 }
 
+async function saveWeeklyClassAttendance(dateKey, selectedIds) {
+  const lessons = classesForDate(dateKey)
+  const weekStart = format(startOfWeek(parseISO(dateKey), { weekStartsOn: 1 }), 'yyyy-MM-dd')
+  return saveWeeklyPlan(existing => {
+    const normalized = classAttendanceForDate(dateKey, lessons, { [dateKey]: selectedIds })
+    const current = existing?.classAttendance?.[dateKey]
+    if (Array.isArray(current) && current.length === normalized.length && current.every((id, index) => id === normalized[index])) return null
+    if (!Array.isArray(current) && normalized.length === lessons.length) return null
+    return withClassAttendance(existing, dateKey, normalized, lessons)
+  }, false, weekStart, true)
+}
+
+async function toggleWeeklyClassAttendance({ dateKey, classId }) {
+  const lessons = classesForDate(dateKey)
+  const plan = weeklyPlanForDate(dateKey)
+  const selectedIds = attendingClassIdsForDate(dateKey, lessons, plan)
+  const nextSelection = toggleClassAttendance(lessons, selectedIds, classId)
+  await saveWeeklyClassAttendance(dateKey, nextSelection)
+}
+
 async function saveWeeklyDayMode({ dateKey, mode }) {
   const weekStart = format(startOfWeek(parseISO(dateKey),{weekStartsOn:1}),'yyyy-MM-dd')
   await saveWeeklyPlan(existing => withWeeklyDayMode(existing,dateKey,mode),false,weekStart,true)
@@ -1468,10 +1597,10 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
           <div class="grid-dashboard">
             <section>
               <div class="card hero-card today-focus-card">
-                <div class="eyebrow today-focus-eyebrow">Фокус дня</div>
+                <div class="eyebrow today-focus-eyebrow">Фокус дня · нагрузка / 6 ч</div>
                 <h2 class="today-focus-title">{{activeTask?.title || 'День свободен — выбери главное'}}</h2>
                 <div class="today-focus-meta"><span>{{activeTask ? `${activeTask.startTime||'Без времени'} · ${activeTask.duration||0} мин` : 'Добавь цепочку действий, и план станет ясным'}}</span><span v-if="taskProjectInfo(activeTask)" class="task-project-badge focus-project-badge" :style="{'--task-project-color':taskProjectInfo(activeTask).color}" :title="`Проект: ${taskProjectInfo(activeTask).name}`"><FolderKanban :size="11" aria-hidden="true"/><span>{{taskProjectInfo(activeTask).name}}</span></span></div>
-                <div class="progress-row"><div class="progress-track"><div class="progress-fill" :style="{width:progress+'%'}"></div></div><div class="progress-label">{{progress}}%</div></div>
+                <div class="progress-row" :class="{overloaded:workloadPercent>100}" title="Загрузка относительно цели 6 часов"><div class="progress-track" role="meter" aria-label="Загруженность относительно цели 6 часов" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.min(workloadPercent,100)" :aria-valuetext="`${workloadPercent}% от 6 ч`"><div class="progress-fill" :style="{width:Math.min(workloadPercent,100)+'%'}"></div></div><div class="progress-label">{{workloadPercent}}%</div></div>
                 <div v-if="activeTask" class="focus-controls"><button type="button" class="focus-change" aria-haspopup="dialog" @click.stop="openFocusPicker"><SlidersHorizontal :size="14"/> Сменить фокус</button><button class="focus-launch" @click="launchFocusMode"><Maximize2 :size="15"/> Режим «Сейчас»</button></div>
               </div>
               <article v-if="nextClass" class="next-class-card card">
@@ -1480,15 +1609,24 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
 
               <div v-if="capacity.overload" class="overload-advice card"><AlertCircle :size="17"/><div><strong>План перегружен на {{capacity.overload}} мин</strong><span>Перенеси {{dayTasks.filter(task=>!task.done&&task.priority!=='high').slice(-2).map(task=>task.title).join(' или ')||'одну необязательную задачу'}} либо сократи оценки времени. Оставь минимум 30 минут резерва.</span></div><button @click="view='tasks'">Исправить план</button></div>
               <section v-if="selectedDate===todayKey || store.prohibitions.value.length" class="prohibition-day-card card">
-                <div class="prohibition-day-head"><div><div class="eyebrow">Фокус дня</div><h2>Мои запреты · {{selectedDate===todayKey?'сегодня':format(parseISO(selectedDate),'d MMM',{locale:ru})}}</h2><p>Напомни себе, что {{selectedDate===todayKey?'сегодня':'в этот день'}} выбираешь не делать.</p></div><span class="prohibition-day-count">{{dayProhibitionViolationCount}} нарушено · {{dayProhibitions.length}} активно</span></div>
-                <div v-if="!store.prohibitions.value.length" class="prohibition-empty-today"><p>Пока нет правил. Создай запрет, и активные будут появляться здесь и в утреннем ритуале.</p><button type="button" class="ghost-btn" @click="openProhibition()"><Plus :size="14"/> Создать запрет</button></div>
-                <template v-else>
-                  <p v-if="!dayProhibitions.length" class="prohibition-paused-note">На этот день все правила на паузе. Их можно включить на завтра в вечерней рутине.</p>
-                  <div class="prohibition-day-list"><article v-for="rule in store.prohibitions.value" :key="rule.id" class="prohibition-day-item" :class="{inactive:!isProhibitionActiveOn(rule,selectedDate),violated:isProhibitionViolatedOn(rule,selectedDate)}"><div class="prohibition-copy"><strong>{{rule.title}}</strong><small>{{rule.description||'Осознанный выбор на этот день'}}</small></div><span class="prohibition-status" :class="{active:isProhibitionActiveOn(rule,selectedDate)}">{{isProhibitionActiveOn(rule,selectedDate)?'Активен':'На паузе'}}</span><button v-if="isProhibitionActiveOn(rule,selectedDate)" type="button" class="prohibition-violation-button" :class="{marked:isProhibitionViolatedOn(rule,selectedDate)}" :aria-pressed="isProhibitionViolatedOn(rule,selectedDate)" :disabled="selectedDate>todayKey" @click="toggleProhibitionViolation(rule,selectedDate)"><X v-if="isProhibitionViolatedOn(rule,selectedDate)" :size="14"/><span>{{isProhibitionViolatedOn(rule,selectedDate)?'Нарушено · отменить':'Отметить нарушение'}}</span></button><button v-else type="button" class="prohibition-paused-button" @click="openReview('evening')">Настроить на завтра</button></article></div>
-                </template>
+                <details class="prohibition-day-details">
+                  <summary class="prohibition-day-head">
+                    <div class="prohibition-day-title"><div class="eyebrow">Личные границы</div><h2>Запреты дня · {{selectedDate===todayKey?'сегодня':format(parseISO(selectedDate),'d MMM',{locale:ru})}}</h2></div>
+                    <span class="prohibition-day-count">{{dayProhibitionViolationCount}} нарушено · {{dayProhibitions.length}} активно</span>
+                    <ChevronDown class="prohibition-day-chevron" :size="15" aria-hidden="true"/>
+                  </summary>
+                  <div class="prohibition-day-content">
+                    <p class="prohibition-day-description">Напомни себе, что {{selectedDate===todayKey?'сегодня':'в этот день'}} выбираешь не делать.</p>
+                    <div v-if="!store.prohibitions.value.length" class="prohibition-empty-today"><p>Пока нет правил. Создай запрет, и активные будут появляться здесь и в утреннем ритуале.</p><button type="button" class="ghost-btn" @click="openProhibition()"><Plus :size="14"/> Создать запрет</button></div>
+                    <template v-else>
+                      <p v-if="!dayProhibitions.length" class="prohibition-paused-note">На этот день все правила на паузе. Их можно включить на завтра в вечерней рутине.</p>
+                      <div class="prohibition-day-list"><article v-for="rule in store.prohibitions.value" :key="rule.id" class="prohibition-day-item" :class="{inactive:!isProhibitionActiveOn(rule,selectedDate),violated:isProhibitionViolatedOn(rule,selectedDate)}"><div class="prohibition-copy"><strong>{{rule.title}}</strong><small>{{rule.description||'Осознанный выбор на этот день'}}</small></div><span class="prohibition-status" :class="{active:isProhibitionActiveOn(rule,selectedDate)}">{{isProhibitionActiveOn(rule,selectedDate)?'Активен':'На паузе'}}</span><button v-if="isProhibitionActiveOn(rule,selectedDate)" type="button" class="prohibition-violation-button" :class="{marked:isProhibitionViolatedOn(rule,selectedDate)}" :aria-pressed="isProhibitionViolatedOn(rule,selectedDate)" :disabled="selectedDate>todayKey" @click="toggleProhibitionViolation(rule,selectedDate)"><X v-if="isProhibitionViolatedOn(rule,selectedDate)" :size="14"/><span>{{isProhibitionViolatedOn(rule,selectedDate)?'Нарушено · отменить':'Отметить нарушение'}}</span></button><button v-else type="button" class="prohibition-paused-button" @click="openReview('evening')">Настроить на завтра</button></article></div>
+                    </template>
+                  </div>
+                </details>
               </section>
               <details class="today-planning-details card">
-                <summary><span class="today-detail-heading"><strong>План дня</strong></span><span class="today-detail-meta">{{selectedClasses.length}} пар · {{visibleHomeworkTotal}} ДЗ</span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
+                <summary><span class="today-detail-heading"><strong>План дня</strong></span><span class="today-detail-meta">{{attendingClasses.length}} из {{selectedClasses.length}} пар · {{visibleHomeworkTotal}} ДЗ</span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
                 <div class="today-planning-content">
                   <div class="day-command card"><button @click="openReview('morning')"><Sunrise :size="18"/><span><strong>{{todayReview?.morningAt?'Утренний ритуал завершён':'Начать утренний ритуал'}}</strong></span></button><div class="day-load" :class="{overload:capacity.overload}"><Gauge :size="18"/><span><strong>{{Math.round(capacity.planned/60*10)/10}} / {{Math.round(capacity.available/60*10)/10}} ч</strong><small>{{capacity.overload?'Перегрузка '+capacity.overload+' мин':'Резерв '+capacity.free+' мин'}}</small></span></div><button @click="openReview('evening')"><Moon :size="18"/><span><strong>{{todayReview?.eveningAt?'Вечерний ритуал завершён':'Начать вечерний ритуал'}}</strong></span></button></div>
               <div v-if="suggestedForWindows.length" class="smart-windows"><div class="section-meta">Подходящие задачи в свободные окна</div><div v-for="window in suggestedForWindows.slice(0,2)" :key="window.start" class="smart-window"><span>{{fromMinutes(window.start)}}–{{fromMinutes(window.end)}} · {{window.duration}} мин</span><button v-for="task in window.tasks.slice(0,2)" :key="task.id" :title="taskProjectInfo(task)?`Проект: ${taskProjectInfo(task).name}`:task.title" @click="scheduleTaskInWindow(task,window)"><span>{{task.title}}</span><small v-if="taskProjectInfo(task)">{{taskProjectInfo(task).name}}</small></button></div></div>
@@ -1571,7 +1709,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
 
         <template v-else-if="view==='study'">
           <div class="study-hero card"><div><div class="eyebrow">УВП-412 · 1 семестр 2026–2027</div><h2>{{selectedAcademicWeek===1?'Первая':'Вторая'}} неделя</h2><p>{{format(studyWeekStart,'d MMMM',{locale:ru})}} — {{format(addDays(studyWeekStart,6),'d MMMM yyyy',{locale:ru})}}</p></div><div class="study-nav"><button class="icon-btn" aria-label="Предыдущая учебная неделя" @click="changeDay(-7)"><ChevronLeft :size="17"/></button><button class="ghost-btn" @click="selectedDate=todayKey">Текущая</button><button class="icon-btn" aria-label="Следующая учебная неделя" @click="changeDay(7)"><ChevronRight :size="17"/></button></div></div>
-          <WeeklyRoutinePlanner :days="weeklyPlannerDays" :selected-date="selectedDate" :wake-times="weeklyPlanRecord?.wakeTimes||{}" :wake-steps="weeklyPlanRecord?.wakeSteps||{}" :confirmed-at="weeklyPlanRecord?.confirmedAt||null" :unscheduled-tasks="weeklyPlanningTasks" :workouts="store.workouts.value" @wake-time="saveWeeklyWakeTime" @wake-step="saveWeeklyWakeStep" @day-mode="saveWeeklyDayMode" @schedule-task="scheduleWeeklyTask" @add-workout-block="addWeeklyWorkoutBlock" @remove-workout-block="removeWeeklyWorkoutBlock" @add-rest-block="addWeeklyRestBlock" @remove-rest-block="removeWeeklyRestBlock" @confirm="confirmWeeklyPlan"/>
+          <WeeklyRoutinePlanner :days="weeklyPlannerDays" :selected-date="selectedDate" :wake-times="weeklyPlanRecord?.wakeTimes||{}" :wake-steps="weeklyPlanRecord?.wakeSteps||{}" :confirmed-at="weeklyPlanRecord?.confirmedAt||null" :unscheduled-tasks="weeklyPlanningTasks" :workouts="store.workouts.value" @wake-time="saveWeeklyWakeTime" @wake-step="saveWeeklyWakeStep" @day-mode="saveWeeklyDayMode" @toggle-class-attendance="toggleWeeklyClassAttendance" @schedule-task="scheduleWeeklyTask" @add-workout-block="addWeeklyWorkoutBlock" @remove-workout-block="removeWeeklyWorkoutBlock" @add-rest-block="addWeeklyRestBlock" @remove-rest-block="removeWeeklyRestBlock" @confirm="confirmWeeklyPlan"/>
           <StudyWeekOverview :summary="studyWeekSummary" :selected-date="selectedDate" :subject-projects="studySubjectProjects" @select-day="selectStudyDay" @open-item="openStudyWeekItem" @toggle-task="completeMilestone"/>
           <div v-if="upcomingHomework.length" class="study-homework card"><div class="section-head"><div><h2>Ближайшие задания</h2><div class="section-meta">Невыполненные · {{upcomingHomework.length}}</div></div></div><div v-for="item in upcomingHomework.slice(0,6)" :key="item.id" class="homework-row with-plan"><button type="button" class="check" :class="{done:item.done}" :aria-label="`Выполнение задания: ${item.title}`" :aria-pressed="item.done" @click="toggleHomework(item)"><Check v-if="item.done" :size="13" aria-hidden="true"/></button><div @click="openHomework({id:item.lessonId,subject:item.subject,kind:item.lessonKind,room:item.room},item.dueDate,item)"><strong>{{item.title}}</strong><span>{{item.subject}}</span></div><button class="plan-homework-btn" :class="{active:(item.plannedDates||[]).includes(selectedDate)}" @click="toggleHomeworkPlan(item)"><Target :size="12"/> {{(item.plannedDates||[]).includes(selectedDate)?'В плане':'В план'}}</button><span class="homework-due">{{format(parseISO(item.dueDate),'d MMM')}}</span></div></div>
           <div v-if="!isInSemester(selectedDate)" class="card empty">Эта дата находится вне периода семестра: {{format(parseISO(SEMESTER.start),'d MMMM',{locale:ru})}} — {{format(parseISO(SEMESTER.end),'d MMMM yyyy',{locale:ru})}}</div>
@@ -1629,7 +1767,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
 
     <Transition name="fade"><div v-if="inboxOpen" class="modal-backdrop" @click.self="inboxOpen=false"><div class="modal" role="dialog" tabindex="-1"><div class="modal-head"><div><div class="eyebrow">Без организации — просто выгрузи из головы</div><div class="modal-title">Входящие</div></div><button type="button" class="close" aria-label="Закрыть диалог" @click="inboxOpen=false"><X :size="17"/></button></div><div class="inbox-capture"><input class="input" v-model="inboxText" autofocus placeholder="Мысль, дело, идея…" @keydown.enter.prevent="captureInbox"/><button class="primary-btn" @click="captureInbox"><Plus :size="16"/> Записать</button></div><div v-if="processingInbox" class="inbox-processor"><strong>{{processingInbox.title}}</strong><label><input type="checkbox" v-model="inboxProcess.actionable"/> Требует конкретного действия</label><template v-if="inboxProcess.actionable"><div class="row"><div class="field"><label>Проект</label><select class="select" v-model="inboxProcess.projectId"><option :value="null">Без проекта</option><option v-for="entry in projectTreeEntries" :key="entry.project.id" :value="entry.project.id">{{'— '.repeat(entry.depth)}}{{entry.project.title}}</option></select></div><div class="field"><label>Статус</label><select class="select" v-model="inboxProcess.status"><option value="planned">Запланировано</option><option value="someday">Когда-нибудь</option><option value="waiting">Ожидание</option></select></div></div><div class="row"><div class="field"><label>Дата</label><input class="input" type="date" v-model="inboxProcess.date"/></div><div class="field"><label>Оценка, мин</label><input class="input" type="number" v-model.number="inboxProcess.duration"/></div></div><div class="field"><label>Контекст</label><textarea class="textarea" rows="2" v-model="inboxProcess.notes"></textarea></div></template><div class="form-actions"><button class="ghost-btn" @click="processingInbox=null">Назад</button><button class="primary-btn" @click="finishInboxProcessing">{{inboxProcess.actionable?'Создать задачу':'Удалить как не требующее действия'}}</button></div></div><div v-else class="inbox-list"><div v-for="item in store.inbox.value" :key="item.id"><span>{{item.title}}</span><button @click="inboxToToday(item)">Разобрать</button><button type="button" class="close" :aria-label="`Удалить входящее: ${item.title}`" @click="removeInbox(item)"><X :size="13"/></button></div><div v-if="!store.inbox.value.length" class="empty">Входящие разобраны</div></div></div></div></Transition>
 
-    <Transition name="fade"><div v-if="reviewOpen" class="modal-backdrop" @click.self="reviewOpen=false"><div class="modal ritual-modal" role="dialog" tabindex="-1"><div class="modal-head"><div><div class="eyebrow">{{reviewMode==='morning'?'Осознанно выбери, ради чего начинается день':'Извлеки урок и запрограммируй новое поведение'}}</div><div class="modal-title">{{reviewMode==='morning'?'Утренний ритуал':'Вечерний ритуал'}}</div></div><button type="button" class="close" aria-label="Закрыть диалог" @click="reviewOpen=false"><X :size="17"/></button></div><template v-if="reviewMode==='morning'"><div v-if="previousReviewGuidance" class="ritual-tomorrow-note"><span><Sunrise :size="16"/></span><div><strong>Напутствие от вчера</strong><p>{{previousReviewGuidance}}</p></div></div><section v-if="dayProhibitions.length" class="prohibition-morning-note"><div class="prohibition-morning-heading"><ShieldCheck :size="17"/><div><strong>Сегодня я держу эти запреты в фокусе</strong></div></div><p v-for="rule in dayProhibitions" :key="rule.id"><strong>{{rule.title}}</strong><span v-if="rule.description"> · {{rule.description}}</span></p></section><section class="ritual-day-times"><div class="ritual-day-times-heading"><strong>Границы дня</strong></div><div class="ritual-day-time-fields"><label class="field"><span>Пробуждение</span><input class="input" type="time" v-model="reviewForm.wakeTime" aria-label="Время пробуждения"/></label><label class="field"><span>Завершить дела</span><input class="input" type="time" v-model="reviewForm.workEndTime" aria-label="Время завершения дел"/></label><label class="field"><span>Отход ко сну</span><input class="input" type="time" v-model="reviewForm.sleepTime" aria-label="Время отхода ко сну"/></label></div></section><section class="day-mode-picker" aria-label="Режим дня"><h3>Режим дня</h3><div class="day-mode-options"><button v-for="mode in DAY_MODES" :key="mode.id" type="button" class="day-mode-option" :class="{active:reviewForm.dayMode===mode.id}" :style="{'--day-mode-color':mode.color}" :aria-pressed="reviewForm.dayMode===mode.id" @click="reviewForm.dayMode=mode.id"><i></i><span><strong>{{mode.label}}</strong><small>{{mode.description}}</small></span></button></div></section><section class="ritual-step"><b>1</b><div><h4>Зачем я проснулся?</h4><div class="ritual-task-create"><input class="input" v-model="reviewQuickTaskTitle" aria-label="Новая задача на сегодня" placeholder="Добавить задачу на сегодня…" @keydown.enter.prevent="addRitualTask('morning')"/><button type="button" class="ghost-btn" :disabled="!reviewQuickTaskTitle.trim()" @click="addRitualTask('morning')"><Plus :size="14"/> Добавить</button></div><div class="ritual-choice-list"><button v-for="item in ritualActions" :key="item.key" :class="{active:reviewForm.selectedSubtasks.includes(item.key)}" @click="toggleRitualSubtask(item.key)"><span class="check" :class="{done:reviewForm.selectedSubtasks.includes(item.key)}"><Check v-if="reviewForm.selectedSubtasks.includes(item.key)" :size="11"/></span><span><strong>{{item.title}}</strong><small>{{item.project?projectPath(item.project)+' · ':''}}Задача · {{item.task.date}}</small></span></button><div v-if="!ritualActions.length" class="ritual-empty">Добавь задачу выше или создай её во вкладке «План» — подготовки из цепочек здесь намеренно не показываются.</div></div><div class="field compact"><label>Смысл или главный результат дня</label><input class="input" v-model="reviewForm.mainResult" placeholder="Одной фразой: ради чего этот день?"/></div></div></section><section class="ritual-step"><b>2</b><div class="field"><h4>За что я благодарен миру?</h4><textarea class="textarea" rows="3" v-model="reviewForm.gratitude" placeholder="Сегодня я благодарен за…"></textarea></div></section><div class="field ritual-energy"><label>Энергия сейчас · {{reviewForm.energy}}/5</label><input class="range" type="range" min="1" max="5" v-model.number="reviewForm.energy"/></div><div class="review-summary"><span>Выбрано шагов: <strong>{{reviewForm.selectedSubtasks.length}}</strong></span><span>Нагрузка: <strong>{{Math.round(capacity.planned/60*10)/10}} ч</strong></span><span v-if="capacity.overload" class="danger">Перегрузка {{capacity.overload}} мин</span></div></template><template v-else><section class="evening-date-control"><div class="evening-date-copy"><label for="evening-review-date">Дата вечерней рутины</label><p>Если заполняешь после полуночи, выбери предыдущий день.</p></div><div class="evening-date-actions"><input class="input" id="evening-review-date" type="date" :value="reviewDate" @change="onEveningReviewDateChange"/><button type="button" class="ghost-btn" @click="setEveningReviewToPreviousDay"><ChevronLeft :size="14" aria-hidden="true"/> Вчера</button></div></section><section class="prohibition-evening-selection"><div class="prohibition-evening-head"><div><h4>Запреты на завтра</h4><p>Выбери правила, которые хочешь держать в фокусе завтра. Утром увидишь их на экране дня.</p></div><button type="button" class="ghost-btn" @click="openProhibition()"><Plus :size="14"/> Добавить</button></div><div v-if="store.prohibitions.value.length" class="prohibition-choice-list"><button v-for="rule in store.prohibitions.value" :key="rule.id" type="button" class="prohibition-choice" :class="{active:reviewForm.activeProhibitionIds.includes(rule.id)}" :aria-pressed="reviewForm.activeProhibitionIds.includes(rule.id)" @click="toggleEveningProhibition(rule.id)"><span class="check" :class="{done:reviewForm.activeProhibitionIds.includes(rule.id)}"><Check v-if="reviewForm.activeProhibitionIds.includes(rule.id)" :size="11"/></span><span><strong>{{rule.title}}</strong><small>{{rule.description||'Личное правило'}}</small></span></button></div><div v-else class="ritual-empty">Пока нет запретов. Добавь правило кнопкой выше — оно появится в списке на завтра.</div><small class="prohibition-plan-summary">{{reviewForm.activeProhibitionIds.length}} активных на {{format(parseISO(eveningTargetDate),'d MMMM',{locale:ru})}}</small></section><section class="ritual-step"><b>1</b><div class="field"><h4>Какие уроки я получил?</h4><p>Что произошло? На что стоит обратить внимание? Что пытался сказать окружающий мир? В чём я могу стать лучше, а что было лишним?</p><textarea class="textarea" rows="4" v-model="reviewForm.lessons" @input="reviewFormTouched=true" placeholder="Ситуация, моя реакция и урок…"></textarea></div></section><section class="ritual-step"><b>2</b><div class="field"><h4>Как это исправить?</h4><p>Найди конкретный сбой в поведении или системе и придумай небольшое исправление.</p><textarea class="textarea" rows="3" v-model="reviewForm.correction" @input="reviewFormTouched=true" placeholder="Сбой был в… В следующий раз я изменю…"></textarea></div></section><section class="ritual-step"><b>3</b><div class="field"><h4>Медитация намерения</h4><p>Представь повторение ситуации и заранее выбери новое действие.</p><textarea class="textarea" rows="3" v-model="reviewForm.intention" @input="reviewFormTouched=true" placeholder="Если ситуация повторится, то я…"></textarea></div></section><section class="ritual-step"><b>4</b><div class="field"><h4>Напутствие себе на завтра</h4><textarea class="textarea" rows="3" v-model="reviewForm.tomorrowMessage" @input="reviewFormTouched=true" placeholder="Завтра начни с главного и не забывай…"></textarea><div class="ritual-task-create ritual-task-create-nextday"><input class="input" v-model="reviewQuickTaskTitle" aria-label="Новая задача на завтра" placeholder="Добавить задачу на завтра…" @keydown.enter.prevent="addRitualTask('evening')"/><button type="button" class="ghost-btn" :disabled="!reviewQuickTaskTitle.trim()" @click="addRitualTask('evening')"><Plus :size="14"/> Добавить</button></div></div></section><div class="field ritual-energy"><label>Оценка дня · {{reviewForm.eveningScore}}/5</label><input class="range" type="range" min="1" max="5" v-model.number="reviewForm.eveningScore" @input="reviewFormTouched=true"/></div></template><div class="form-actions"><button class="ghost-btn" @click="reviewOpen=false">Позже</button><button class="primary-btn" @click="saveReview"><Check :size="15"/> Завершить ритуал</button></div></div></div></Transition>
+    <Transition name="fade"><div v-if="reviewOpen" class="modal-backdrop" @click.self="reviewOpen=false"><div class="modal ritual-modal" role="dialog" tabindex="-1"><div class="modal-head"><div><div class="eyebrow">{{reviewMode==='morning'?'Осознанно выбери, ради чего начинается день':'Извлеки урок и запрограммируй новое поведение'}}</div><div class="modal-title">{{reviewMode==='morning'?'Утренний ритуал':'Вечерний ритуал'}}</div></div><button type="button" class="close" aria-label="Закрыть диалог" @click="reviewOpen=false"><X :size="17"/></button></div><template v-if="reviewMode==='morning'"><div v-if="previousReviewGuidance" class="ritual-tomorrow-note"><span><Sunrise :size="16"/></span><div><strong>Напутствие от вчера</strong><p>{{previousReviewGuidance}}</p></div></div><section v-if="dayProhibitions.length" class="prohibition-morning-note"><div class="prohibition-morning-heading"><ShieldCheck :size="17"/><div><strong>Сегодня я держу эти запреты в фокусе</strong></div></div><p v-for="rule in dayProhibitions" :key="rule.id"><strong>{{rule.title}}</strong><span v-if="rule.description"> · {{rule.description}}</span></p></section><section class="ritual-day-times"><div class="ritual-day-times-heading"><strong>Границы дня</strong></div><div class="ritual-day-time-fields"><label class="field"><span>Пробуждение</span><input class="input" type="time" v-model="reviewForm.wakeTime" aria-label="Время пробуждения"/></label><label class="field"><span>Завершить дела</span><input class="input" type="time" v-model="reviewForm.workEndTime" aria-label="Время завершения дел"/></label><label class="field"><span>Отход ко сну</span><input class="input" type="time" v-model="reviewForm.sleepTime" aria-label="Время отхода ко сну"/></label></div></section><section class="day-mode-picker" aria-label="Режим дня"><h3>Режим дня</h3><div class="day-mode-options"><button v-for="mode in DAY_MODES" :key="mode.id" type="button" class="day-mode-option" :class="{active:reviewForm.dayMode===mode.id}" :style="{'--day-mode-color':mode.color}" :aria-pressed="reviewForm.dayMode===mode.id" @click="reviewForm.dayMode=mode.id"><i></i><span><strong>{{mode.label}}</strong><small>{{mode.description}}</small></span></button></div></section><section v-if="reviewClasses.length" class="ritual-class-attendance" aria-labelledby="ritual-class-attendance-title"><div class="ritual-class-attendance-head"><div><h3 id="ritual-class-attendance-title">Пары {{reviewDate===todayKey?'сегодня':format(parseISO(reviewDate),'d MMMM',{locale:ru})}}</h3><p>Отметь занятия, на которые пойдёшь: они и тренировки войдут в нагрузку дня.</p></div><span>{{reviewForm.attendingClassIds.length}}/{{reviewClasses.length}}</span></div><div class="ritual-class-list"><label v-for="lesson in reviewClasses" :key="lesson.id" :class="{selected:reviewForm.attendingClassIds.includes(lesson.id)}"><input type="checkbox" :checked="reviewForm.attendingClassIds.includes(lesson.id)" :aria-label="`Пойду на ${lesson.pair}-ю пару: ${lesson.subject}`" @change="toggleMorningClassAttendance(lesson.id,$event.target.checked)"/><span><strong>{{lesson.start}}–{{lesson.end}} · {{lesson.subject}}</strong><small>{{lesson.pair}} пара · {{lesson.kind}} · ауд. {{lesson.room}}</small></span></label></div></section><section class="ritual-step"><b>1</b><div><h4>Зачем я проснулся?</h4><div class="ritual-task-create"><input class="input" v-model="reviewQuickTaskTitle" aria-label="Новая задача на сегодня" placeholder="Добавить задачу на сегодня…" @keydown.enter.prevent="addRitualTask('morning')"/><button type="button" class="ghost-btn" :disabled="!reviewQuickTaskTitle.trim()" @click="addRitualTask('morning')"><Plus :size="14"/> Добавить</button></div><div class="ritual-choice-list"><button v-for="item in ritualActions" :key="item.key" :class="{active:reviewForm.selectedSubtasks.includes(item.key)}" @click="toggleRitualSubtask(item.key)"><span class="check" :class="{done:reviewForm.selectedSubtasks.includes(item.key)}"><Check v-if="reviewForm.selectedSubtasks.includes(item.key)" :size="11"/></span><span><strong>{{item.title}}</strong><small>{{item.project?projectPath(item.project)+' · ':''}}Задача · {{item.task.date}}</small></span></button><div v-if="!ritualActions.length" class="ritual-empty">Добавь задачу выше или создай её во вкладке «План» — подготовки из цепочек здесь намеренно не показываются.</div></div><div class="field compact"><label>Смысл или главный результат дня</label><input class="input" v-model="reviewForm.mainResult" placeholder="Одной фразой: ради чего этот день?"/></div></div></section><section class="ritual-step"><b>2</b><div class="field"><h4>За что я благодарен миру?</h4><textarea class="textarea" rows="3" v-model="reviewForm.gratitude" placeholder="Сегодня я благодарен за…"></textarea></div></section><div class="field ritual-energy"><label>Энергия сейчас · {{reviewForm.energy}}/5</label><input class="range" type="range" min="1" max="5" v-model.number="reviewForm.energy"/></div><div class="review-summary"><span>Выбрано шагов: <strong>{{reviewForm.selectedSubtasks.length}}</strong></span><span>Нагрузка: <strong>{{Math.round(workloadMinutes/60*10)/10}} ч · {{workloadPercent}}%</strong></span><span v-if="capacity.overload" class="danger">Перегрузка {{capacity.overload}} мин</span></div></template><template v-else><section class="evening-date-control"><div class="evening-date-copy"><label for="evening-review-date">Дата вечерней рутины</label><p>Если заполняешь после полуночи, выбери предыдущий день.</p></div><div class="evening-date-actions"><input class="input" id="evening-review-date" type="date" :value="reviewDate" @change="onEveningReviewDateChange"/><button type="button" class="ghost-btn" @click="setEveningReviewToPreviousDay"><ChevronLeft :size="14" aria-hidden="true"/> Вчера</button></div></section><section class="prohibition-evening-selection"><div class="prohibition-evening-head"><div><h4>Запреты на завтра</h4><p>Выбери правила, которые хочешь держать в фокусе завтра. Утром увидишь их на экране дня.</p></div><button type="button" class="ghost-btn" @click="openProhibition()"><Plus :size="14"/> Добавить</button></div><div v-if="store.prohibitions.value.length" class="prohibition-choice-list"><button v-for="rule in store.prohibitions.value" :key="rule.id" type="button" class="prohibition-choice" :class="{active:reviewForm.activeProhibitionIds.includes(rule.id)}" :aria-pressed="reviewForm.activeProhibitionIds.includes(rule.id)" @click="toggleEveningProhibition(rule.id)"><span class="check" :class="{done:reviewForm.activeProhibitionIds.includes(rule.id)}"><Check v-if="reviewForm.activeProhibitionIds.includes(rule.id)" :size="11"/></span><span><strong>{{rule.title}}</strong><small>{{rule.description||'Личное правило'}}</small></span></button></div><div v-else class="ritual-empty">Пока нет запретов. Добавь правило кнопкой выше — оно появится в списке на завтра.</div><small class="prohibition-plan-summary">{{reviewForm.activeProhibitionIds.length}} активных на {{format(parseISO(eveningTargetDate),'d MMMM',{locale:ru})}}</small></section><section class="ritual-step"><b>1</b><div class="field"><h4>Какие уроки я получил?</h4><p>Что произошло? На что стоит обратить внимание? Что пытался сказать окружающий мир? В чём я могу стать лучше, а что было лишним?</p><textarea class="textarea" rows="4" v-model="reviewForm.lessons" @input="reviewFormTouched=true" placeholder="Ситуация, моя реакция и урок…"></textarea></div></section><section class="ritual-step"><b>2</b><div class="field"><h4>Как это исправить?</h4><p>Найди конкретный сбой в поведении или системе и придумай небольшое исправление.</p><textarea class="textarea" rows="3" v-model="reviewForm.correction" @input="reviewFormTouched=true" placeholder="Сбой был в… В следующий раз я изменю…"></textarea></div></section><section class="ritual-step"><b>3</b><div class="field"><h4>Медитация намерения</h4><p>Представь повторение ситуации и заранее выбери новое действие.</p><textarea class="textarea" rows="3" v-model="reviewForm.intention" @input="reviewFormTouched=true" placeholder="Если ситуация повторится, то я…"></textarea></div></section><section class="ritual-step"><b>4</b><div class="field"><h4>Напутствие себе на завтра</h4><textarea class="textarea" rows="3" v-model="reviewForm.tomorrowMessage" @input="reviewFormTouched=true" placeholder="Завтра начни с главного и не забывай…"></textarea><div class="ritual-task-create ritual-task-create-nextday"><input class="input" v-model="reviewQuickTaskTitle" aria-label="Новая задача на завтра" placeholder="Добавить задачу на завтра…" @keydown.enter.prevent="addRitualTask('evening')"/><button type="button" class="ghost-btn" :disabled="!reviewQuickTaskTitle.trim()" @click="addRitualTask('evening')"><Plus :size="14"/> Добавить</button></div></div></section><div class="field ritual-energy"><label>Оценка дня · {{reviewForm.eveningScore}}/5</label><input class="range" type="range" min="1" max="5" v-model.number="reviewForm.eveningScore" @input="reviewFormTouched=true"/></div></template><div class="form-actions"><button class="ghost-btn" @click="reviewOpen=false">Позже</button><button class="primary-btn" @click="saveReview"><Check :size="15"/> Завершить ритуал</button></div></div></div></Transition>
 
     <Transition name="fade"><div v-if="projectOpen" class="modal-backdrop" @click.self="projectOpen=false"><div class="modal" role="dialog" tabindex="-1"><div class="modal-head"><div class="modal-title">{{editingProject.id?'Настроить проект':'Новый проект'}}</div><button type="button" class="close" aria-label="Закрыть диалог" @click="projectOpen=false"><X :size="17"/></button></div><div class="field"><label>Название</label><input class="input" v-model="editingProject.title" autofocus placeholder="Например, Математика"/></div><div class="field"><label>Родительский проект</label><select class="select" v-model="editingProject.parentProjectId"><option :value="null">Корневой проект</option><option v-for="entry in projectParentOptions" :key="entry.project.id" :value="entry.project.id">{{'— '.repeat(entry.depth)}}{{entry.project.title}}</option></select></div><div class="field"><label>Предмет для автоматической привязки ДЗ</label><select class="select" v-model="editingProject.homeworkSubject"><option :value="null">Не привязывать к предмету</option><option v-for="subject in homeworkSubjectOptions" :key="subject" :value="subject">{{subject}}</option></select></div><div class="field"><label>Измеримый результат</label><input class="input" v-model="editingProject.outcome" placeholder="Что означает «готово»?"/></div><div class="row"><div class="field"><label>Целевая дата</label><input class="input" type="date" v-model="editingProject.targetDate"/></div><div class="field"><label>Цвет</label><input class="input color-input" type="color" v-model="editingProject.color"/></div></div><div class="project-modal-task-action"><div><strong>Создать задачу в этом проекте</strong><small>Сначала сохраню проект и изменения, затем открою новую задачу</small></div><button type="button" class="ghost-btn" :disabled="projectTaskCreating||!editingProject.title.trim()" @click="createTaskFromProjectDialog"><Plus :size="14" aria-hidden="true"/> {{projectTaskCreating?'Сохраняю…':'Создать задачу'}}</button></div><div v-if="editingProject.id" class="project-completion-control"><span><strong>{{editingProject.status==='completed'?'Проект завершён':'Проект в работе'}}</strong><small>Задачи и подпроекты не меняют статус автоматически.</small></span><button type="button" class="ghost-btn" :class="{completed:editingProject.status==='completed'}" :aria-pressed="editingProject.status==='completed'" @click="toggleProjectCompletion(editingProject)"><Check v-if="editingProject.status==='completed'" :size="14" aria-hidden="true"/>{{editingProject.status==='completed'?'Возобновить':'Отметить завершённым'}}</button></div><div class="form-actions"><button v-if="editingProject.id" class="ghost-btn danger-btn" style="margin-right:auto" @click="deleteProject"><Archive :size="14"/> Архив</button><button class="ghost-btn" @click="projectOpen=false">Отмена</button><button class="primary-btn" @click="saveProject">Сохранить</button></div></div></div></Transition>
 

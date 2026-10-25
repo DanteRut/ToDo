@@ -156,3 +156,10 @@
   .weekly24-date span{font-size:7px}
   .weekly24-wake-label input,.weekly24-step-label input{height:28px;padding:3px 4px}
 }
+
+.weekly24-class-count{color:var(--green)!important;font-variant-numeric:tabular-nums}
+.weekly24-event-class{cursor:pointer;transition:opacity .12s,filter .12s,box-shadow .12s}
+.weekly24-event-class.attending{box-shadow:inset 2px 0 var(--green)}
+.weekly24-event-class.not-attending{border-style:dashed;border-color:#515662;background:#24262e;color:#b1b5bf;opacity:.5}
+.weekly24-event-class.not-attending:hover{opacity:.86;filter:brightness(1.08)}
+.weekly24-event-class:focus-visible{z-index:5;outline:2px solid #7dd3fc;outline-offset:1px}

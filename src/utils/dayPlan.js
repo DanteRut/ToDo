@@ -5,6 +5,23 @@ export const toMinutes = value => {
 
 export const fromMinutes = value => `${String(Math.floor(value / 60) % 24).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
 
+export const FOCUS_LOAD_TARGET_MINUTES = 6 * 60
+
+export function focusLoadMinutes({ tasks = [], classes = [], workouts = [], homework = [] } = {}) {
+  const taskMinutes = tasks.reduce((sum, task) => sum + (Number(task.duration) || 30), 0)
+  const classMinutes = classes.reduce((sum, lesson) => sum + Math.max(0, toMinutes(lesson.end) - toMinutes(lesson.start)), 0)
+  const workoutMinutes = workouts.reduce((sum, workout) => sum + (Number(workout.duration) || 60), 0)
+  const homeworkMinutes = homework
+    .filter(item => !item.sourceTaskId)
+    .reduce((sum, item) => sum + (Number(item.estimatedMinutes) || 45), 0)
+  return taskMinutes + classMinutes + workoutMinutes + homeworkMinutes
+}
+
+export function focusLoadPercent(minutes) {
+  const percentage = Math.max(0, Number(minutes) || 0) / FOCUS_LOAD_TARGET_MINUTES * 100
+  return percentage > 100 ? Math.ceil(percentage) : Math.round(percentage)
+}
+
 export function buildDayTimeline(tasks, classes, commuteMinutes = 50) {
   const items = [
     ...classes.map(lesson => ({ id: `class-${lesson.id}`, type: 'class', title: lesson.subject, start: toMinutes(lesson.start), end: toMinutes(lesson.end), source: lesson })),

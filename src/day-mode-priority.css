@@ -146,7 +146,7 @@
 .app-shell .today-checklist-toggle:hover{color:var(--theme-highlight)}
 .app-shell .inbox-trigger b,.app-shell .homework-btn b{background:var(--theme-accent);color:var(--theme-bg)}
 .app-shell .timeline-layers.active{border-color:var(--theme-accent);background:var(--theme-accent-deep);color:var(--theme-accent-soft)}
-.app-shell .day-calendar-event:not(.day-calendar-event--priority-high):not(.day-calendar-event--priority-medium):not(.day-calendar-event--priority-normal):not(.day-calendar-event--class):not(.day-calendar-event--commute):not(.day-calendar-event--homework):not(.day-calendar-event--habit):not(.day-calendar-event--rest){border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface-2))}
+.app-shell .day-calendar-event:not(.day-calendar-event--priority-high):not(.day-calendar-event--priority-medium):not(.day-calendar-event--priority-normal):not(.day-calendar-event--class):not(.day-calendar-event--commute):not(.day-calendar-event--homework):not(.day-calendar-event--habit):not(.day-calendar-event--rest):not(.day-calendar-event--workout){border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface-2))}
 .app-shell .weekly24-event-task:not(.weekly24-event-priority-high):not(.weekly24-event-priority-medium):not(.weekly24-event-priority-normal){border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface-2));color:var(--theme-accent-soft)}
 .app-shell button:focus-visible,.app-shell a:focus-visible,.app-shell input:focus-visible,.app-shell select:focus-visible,.app-shell textarea:focus-visible,.app-shell summary:focus-visible,.app-shell [tabindex]:focus-visible{outline-color:var(--theme-accent-soft)}
 .app-shell .homework-plan-head>b,.app-shell .homework-due,.app-shell .homework-btn,.app-shell .mini-btn,.app-shell .mini-add-set,.app-shell .intention-badge,.app-shell .focus-option-date,.app-shell .setting-card code{color:var(--theme-accent-soft)}
@@ -269,6 +269,8 @@
 .app-shell .today-focus-card .progress-row{grid-area:progress;display:flex;align-items:center;gap:7px;width:108px;margin:0;justify-self:end}
 .app-shell .today-focus-card .progress-track{height:4px}
 .app-shell .today-focus-card .progress-label{color:var(--theme-accent-soft);font-size:10px;font-variant-numeric:tabular-nums}
+.app-shell .today-focus-card .progress-row.overloaded .progress-fill{background:var(--danger);box-shadow:0 0 7px color-mix(in srgb,var(--danger) 45%,transparent)}
+.app-shell .today-focus-card .progress-row.overloaded .progress-label{color:var(--danger)}
 .app-shell .today-focus-card .focus-controls{position:static;grid-area:controls;display:flex;align-items:center;justify-content:flex-start;gap:6px;margin:4px 0 0;z-index:2}
 .app-shell .today-focus-card .focus-controls button{flex:0 0 auto;min-height:30px;padding:5px 9px;border-radius:8px;font-size:9px;line-height:1.2;box-shadow:none}
 @media(max-width:520px){

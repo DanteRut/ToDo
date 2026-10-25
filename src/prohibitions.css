@@ -2,3 +2,19 @@
 @media(max-width:680px){.prohibition-day-card{padding:13px}.prohibition-day-head h2{font-size:14px}.prohibition-day-item{grid-template-columns:1fr;gap:8px}.prohibition-violation-button{width:100%}.prohibition-choice-list{grid-template-columns:1fr}.prohibition-evening-selection{padding:10px}.prohibition-management-head{grid-template-columns:31px minmax(0,1fr) auto 24px;gap:6px}.prohibition-management-copy h3{font-size:11px}.prohibition-management-copy p{font-size:7px}.prohibition-status{padding:4px 5px;font-size:7px}.prohibition-setting-card{padding:13px}.prohibition-management-footer{align-items:flex-start;flex-direction:column}.prohibition-management-footer .prohibition-violation-button{width:100%}.prohibition-day-count{padding:6px 7px;font-size:8px}}
 .prohibition-day-item{grid-template-columns:minmax(0,1fr) auto auto}.prohibition-day-item.inactive{border-style:dashed;background:color-mix(in srgb,var(--muted) 5%,var(--panel))}.prohibition-day-item.inactive .prohibition-copy{opacity:.78}.prohibition-paused-button{min-height:33px;padding:0 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel2);color:var(--muted);font-size:9px;font-weight:700;cursor:pointer;white-space:nowrap}.prohibition-paused-button:hover{border-color:color-mix(in srgb,var(--purple) 45%,var(--line));color:var(--purple2)}.prohibition-paused-note{margin:0 0 10px;padding:9px 11px;border:1px dashed var(--line);border-radius:9px;color:var(--muted);font-size:9px;line-height:1.45}.prohibition-empty-today{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px;border:1px dashed color-mix(in srgb,var(--purple) 35%,var(--line));border-radius:11px;background:color-mix(in srgb,var(--purple) 6%,var(--panel))}.prohibition-empty-today p{margin:0;color:var(--muted);font-size:9px;line-height:1.5}.prohibition-empty-today .ghost-btn{min-height:34px;padding:0 10px;font-size:9px;white-space:nowrap}
 @media(max-width:680px){.prohibition-day-item{grid-template-columns:1fr}.prohibition-empty-today{align-items:stretch;flex-direction:column}.prohibition-empty-today .ghost-btn{width:100%}}
+
+/* The day-level rules stay tucked away until the user opens them. */
+.prohibition-day-card{margin:10px 0;padding:8px 11px}
+.prohibition-day-details>summary{list-style:none;cursor:pointer}
+.prohibition-day-details>summary::-webkit-details-marker{display:none}
+.prohibition-day-head{display:grid;grid-template-columns:minmax(0,1fr) auto 16px;align-items:center;gap:9px;margin:0}
+.prohibition-day-title{min-width:0}
+.prohibition-day-title>.eyebrow{font-size:7px}
+.prohibition-day-head h2{margin:2px 0 0;font-size:12px;line-height:1.25}
+.prohibition-day-count{padding:5px 7px;font-size:8px}
+.prohibition-day-chevron{color:var(--danger);transition:transform .15s}
+.prohibition-day-details[open] .prohibition-day-chevron{transform:rotate(180deg)}
+.prohibition-day-details>summary:focus-visible{outline:2px solid color-mix(in srgb,var(--danger) 60%,transparent);outline-offset:3px;border-radius:6px}
+.prohibition-day-content{padding-top:8px}
+.prohibition-day-description{margin:0 0 8px;color:var(--muted);font-size:8px;line-height:1.4}
+@media(max-width:680px){.prohibition-day-card{padding:7px 9px}.prohibition-day-head{grid-template-columns:minmax(0,1fr) auto 14px;gap:6px}.prohibition-day-title>.eyebrow{font-size:6px}.prohibition-day-head h2{font-size:11px}.prohibition-day-count{max-width:116px;padding:4px 5px;font-size:7px;text-align:center;white-space:normal}.prohibition-day-chevron{width:13px;height:13px}.prohibition-day-content{padding-top:7px}}

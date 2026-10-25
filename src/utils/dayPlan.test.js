@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDayTimeline, dayCapacity, freeWindows, layoutOverlaps } from './dayPlan'
+import { buildDayTimeline, dayCapacity, focusLoadMinutes, focusLoadPercent, freeWindows, layoutOverlaps } from './dayPlan'
 
 describe('day planning', () => {
   const classes = [{ id: 'one', subject: 'Тестирование', start: '10:05', end: '11:25' }]
@@ -16,6 +16,23 @@ describe('day planning', () => {
       { start: 480, end: 555, duration: 75 },
       { start: 685, end: 720, duration: 35 }
     ])
+  })
+
+  it('sums all tasks, attending classes, workouts, and unlinked homework for the focus load', () => {
+    const minutes = focusLoadMinutes({
+      tasks: [{ duration: 90, done: true }, { duration: 30, done: false }],
+      classes: [{ start: '10:00', end: '11:30' }],
+      workouts: [{ duration: 60 }],
+      homework: [{ estimatedMinutes: 45 }, { sourceTaskId: 'task-1', estimatedMinutes: 90 }]
+    })
+    expect(minutes).toBe(315)
+  })
+
+  it('measures focus workload against six hours without capping values above 100 percent', () => {
+    expect(focusLoadPercent(0)).toBe(0)
+    expect(focusLoadPercent(360)).toBe(100)
+    expect(focusLoadPercent(361)).toBe(101)
+    expect(focusLoadPercent(420)).toBe(117)
   })
 
   it('assigns separate lanes to overlapping events', () => {

@@ -23,6 +23,7 @@ export function hasScheduleConflict(startTime, duration, events = []) {
   if (start === null || start === 1440 || !Number.isFinite(length) || length <= 0 || start + length > 1440) return true
 
   return events.some(event => {
+    if (event.blocksTime === false) return false
     const eventStart = timeToMinute(event.startTime)
     if (eventStart === null || eventStart === 1440) return false
     const eventEnd = event.endTime ? timeToMinute(event.endTime) : eventStart + (Number(event.duration) || 0)

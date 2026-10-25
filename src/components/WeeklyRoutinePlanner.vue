@@ -16,7 +16,7 @@ const props = defineProps({
   workouts: { type: Array, default: () => [] }
 })
 const emit = defineEmits([
-  'wake-time', 'wake-step', 'day-mode', 'schedule-task', 'add-workout-block',
+  'wake-time', 'wake-step', 'day-mode', 'toggle-class-attendance', 'schedule-task', 'add-workout-block',
   'remove-workout-block', 'add-rest-block', 'remove-rest-block', 'confirm'
 ])
 
@@ -167,6 +167,7 @@ function removeWorkoutEvent(event) { emit('remove-workout-block', event.id) }
     <header class="weekly-routine-head">
       <div>
         <h2 id="weekly-routine-title">План недели</h2>
+        <p>Нажми на пару, чтобы отметить посещение — это обновит загруженность дня.</p>
       </div>
       <span class="weekly-plan-status" :class="{confirmed:confirmedAt}">
         <Check v-if="confirmedAt" :size="14" aria-hidden="true"/>
@@ -204,7 +205,7 @@ function removeWorkoutEvent(event) { emit('remove-workout-block', event.id) }
       <div class="weekly24-grid">
         <div class="weekly24-head-spacer"><span>24 ч</span></div>
         <header v-for="day in days" :key="`head-${day.key}`" class="weekly24-day-head" :class="[{today:day.isToday,saturday:day.weekdayNumber===6},`day-mode-${day.dayMode}`]">
-          <div class="weekly24-date"><strong>{{day.weekdayShort}}</strong><span>{{day.dateLabel}}</span></div>
+          <div class="weekly24-date"><strong>{{day.weekdayShort}}</strong><span>{{day.dateLabel}}</span><small v-if="day.classCount" class="weekly24-class-count">{{day.attendingClassCount}}/{{day.classCount}} пар</small></div>
           <div class="weekly24-day-modes" role="group" :aria-label="`Режим дня: ${day.weekday} ${dateLabel(day.key)}`">
             <button v-for="mode in DAY_MODES" :key="mode.id" type="button" class="weekly24-mode-dot" :class="{active:day.dayMode===mode.id}" :style="{'--day-mode-color':mode.color}" :aria-label="mode.label" :aria-pressed="day.dayMode===mode.id" :title="`${mode.label} · ${mode.description}`" @click="selectDayMode(day,mode)"></button>
           </div>
@@ -228,6 +229,9 @@ function removeWorkoutEvent(event) { emit('remove-workout-block', event.id) }
             </button>
             <button v-else-if="event.type==='workout'" type="button" class="weekly24-event" :class="[eventClass(event),{compact:Number(event.duration)<=30}]" :style="eventStyle(event)" :aria-label="`Убрать тренировку ${event.title}, ${day.weekday} ${event.startTime}`" @click.stop="removeWorkoutEvent(event)">
               <strong>{{event.title}}</strong><small>{{event.startTime}}</small><X :size="11" aria-hidden="true"/>
+            </button>
+            <button v-else-if="event.type==='class'" type="button" class="weekly24-event" :class="[eventClass(event),{attending:event.attending,'not-attending':!event.attending}]" :style="eventStyle(event)" :aria-pressed="event.attending" :aria-label="`${event.title}, ${day.weekday} ${day.dateLabel}, ${event.startTime}. ${event.attending?'Планирую пойти':'Не планирую идти'}. Нажмите, чтобы изменить посещение.`" :title="`${event.title} · ${event.startTime}–${event.endTime} · ${event.attending?'Пойду':'Не пойду'} · ${event.detail}`" @click.stop="emit('toggle-class-attendance',{dateKey:day.key,classId:event.classId})">
+              <strong>{{event.title}}</strong><small>{{event.startTime}} · {{event.attending?'Иду':'Не иду'}}</small>
             </button>
             <article v-else class="weekly24-event" :class="[eventClass(event),{compact:Number(event.duration)<=30}]" :style="eventStyle(event)" :draggable="event.type==='task'&&!event.source?.done" :title="`${event.title} · ${event.startTime}${event.endTime?`–${event.endTime}`:''}`" @click.stop @dragstart="beginScheduledTaskDrag(event,$event)" @dragend="cancelDrag">
               <strong>{{event.title}}</strong><small>{{event.startTime}}<template v-if="event.detail&&event.type!=='task'"> · {{event.detail}}</template></small>
