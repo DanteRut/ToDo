@@ -1592,7 +1592,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
           <details class="today-day-calendar card">
             <summary><span class="day-calendar-summary-copy"><strong>Весь день · 06:00–24:00</strong><small>{{dayScheduleSummary}}</small></span><span class="day-calendar-summary-count">Показать расписание</span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
             <div class="day-calendar-inline-action"><button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="13"/> Границы дня</button></div>
-            <DayCalendar :events="unifiedTimeline" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" @open-event="openTimelineItem"/>
+            <DayCalendar :events="unifiedTimeline" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </details>
           <div class="grid-dashboard">
             <section>
