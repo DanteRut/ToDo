@@ -36,52 +36,144 @@
 .week-items .week-task.priority-normal{border-left:2px solid #f4f4f5;background:#25262b;color:#f4f4f5}
 .week-items .week-task.completed{opacity:.58;text-decoration:line-through}
 
-/* Day mode tints the working UI without repainting the whole page. */
+/* Day complexity drives the complete application palette: canvas, surfaces, controls and accents. */
 .app-shell{
-  --day-mode-accent:#22c55e;
-  --day-mode-tint:color-mix(in srgb,#22c55e 10%,var(--panel));
-  --day-mode-border:color-mix(in srgb,#22c55e 40%,var(--line));
-  --day-mode-glow:color-mix(in srgb,#22c55e 20%,transparent);
-  --day-mode-contrast:#bbf7d0;
+  color-scheme:dark;
+  --theme-bg:#08140d;
+  --theme-surface:#101e15;
+  --theme-surface-2:#182a1e;
+  --theme-border:#2e5339;
+  --theme-accent:#22c55e;
+  --theme-accent-soft:#bbf7d0;
+  --theme-accent-deep:#15803d;
+  --theme-secondary:#34d399;
+  --theme-highlight:#86efac;
+  --theme-glow:#22c55e;
+  --theme-text:#f0fdf4;
+  --theme-muted:#9fc4aa;
+  --bg:var(--theme-bg);
+  --panel:var(--theme-surface);
+  --panel2:var(--theme-surface-2);
+  --line:var(--theme-border);
+  --muted:var(--theme-muted);
+  --purple:var(--theme-accent);
+  --purple2:var(--theme-accent-soft);
+  --text:var(--theme-text);
+  --day-mode-accent:var(--theme-accent);
+  --day-mode-tint:color-mix(in srgb,var(--theme-accent) 16%,var(--theme-surface));
+  --day-mode-border:color-mix(in srgb,var(--theme-accent) 48%,var(--theme-border));
+  --day-mode-glow:color-mix(in srgb,var(--theme-accent) 25%,transparent);
+  --day-mode-contrast:var(--theme-accent-soft);
+  background:radial-gradient(ellipse at 88% 0%,color-mix(in srgb,var(--theme-accent) 12%,transparent),transparent 48rem),var(--theme-bg);
+  color:var(--theme-text);
+  transition:background-color .22s,color .22s;
 }
 .app-shell[data-day-mode="focus"]{
-  --day-mode-accent:#ef4444;
-  --day-mode-tint:color-mix(in srgb,#ef4444 11%,var(--panel));
-  --day-mode-border:color-mix(in srgb,#ef4444 44%,var(--line));
-  --day-mode-glow:color-mix(in srgb,#ef4444 20%,transparent);
-  --day-mode-contrast:#fecaca;
+  --theme-bg:#16090c;
+  --theme-surface:#211015;
+  --theme-surface-2:#32181f;
+  --theme-border:#60303a;
+  --theme-accent:#ef4444;
+  --theme-accent-soft:#fecaca;
+  --theme-accent-deep:#b91c1c;
+  --theme-secondary:#fb7185;
+  --theme-highlight:#fca5a5;
+  --theme-glow:#ef4444;
+  --theme-text:#fff1f2;
+  --theme-muted:#d1a0a8;
 }
 .app-shell[data-day-mode="main"]{
-  --day-mode-accent:#f59e0b;
-  --day-mode-tint:color-mix(in srgb,#f59e0b 11%,var(--panel));
-  --day-mode-border:color-mix(in srgb,#f59e0b 44%,var(--line));
-  --day-mode-glow:color-mix(in srgb,#f59e0b 20%,transparent);
-  --day-mode-contrast:#fde68a;
+  --theme-bg:#171105;
+  --theme-surface:#241a0a;
+  --theme-surface-2:#35250e;
+  --theme-border:#604719;
+  --theme-accent:#f59e0b;
+  --theme-accent-soft:#fde68a;
+  --theme-accent-deep:#b45309;
+  --theme-secondary:#fbbf24;
+  --theme-highlight:#fcd34d;
+  --theme-glow:#f59e0b;
+  --theme-text:#fffbeb;
+  --theme-muted:#c9b68b;
 }
 .app-shell[data-day-mode="normal"]{
-  --day-mode-accent:#22c55e;
-  --day-mode-tint:color-mix(in srgb,#22c55e 10%,var(--panel));
-  --day-mode-border:color-mix(in srgb,#22c55e 40%,var(--line));
-  --day-mode-glow:color-mix(in srgb,#22c55e 20%,transparent);
-  --day-mode-contrast:#bbf7d0;
+  --theme-bg:#08140d;
+  --theme-surface:#101e15;
+  --theme-surface-2:#182a1e;
+  --theme-border:#2e5339;
+  --theme-accent:#22c55e;
+  --theme-accent-soft:#bbf7d0;
+  --theme-accent-deep:#15803d;
+  --theme-secondary:#34d399;
+  --theme-highlight:#86efac;
+  --theme-glow:#22c55e;
+  --theme-text:#f0fdf4;
+  --theme-muted:#9fc4aa;
 }
 .app-shell[data-day-mode="rest"]{
-  --day-mode-accent:#f4f4f5;
-  --day-mode-tint:color-mix(in srgb,#f4f4f5 8%,var(--panel));
-  --day-mode-border:color-mix(in srgb,#f4f4f5 36%,var(--line));
-  --day-mode-glow:color-mix(in srgb,#f4f4f5 16%,transparent);
-  --day-mode-contrast:#f4f4f5;
+  --theme-bg:#101113;
+  --theme-surface:#191a1e;
+  --theme-surface-2:#25272c;
+  --theme-border:#45474e;
+  --theme-accent:#e4e4e7;
+  --theme-accent-soft:#fafafa;
+  --theme-accent-deep:#71717a;
+  --theme-secondary:#d4d4d8;
+  --theme-highlight:#f4f4f5;
+  --theme-glow:#e4e4e7;
+  --theme-text:#fafafa;
+  --theme-muted:#b7b8bf;
 }
 .app-shell .main{position:relative}
-.app-shell .main::before{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--day-mode-accent) 84%,transparent),transparent);box-shadow:0 0 14px var(--day-mode-glow);content:"";pointer-events:none}
+.app-shell .main::before{position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--day-mode-accent) 84%,transparent),transparent);box-shadow:0 0 18px var(--day-mode-glow);content:"";pointer-events:none}
+.app-shell .sidebar{border-color:var(--theme-border);box-shadow:1px 0 26px color-mix(in srgb,var(--theme-accent) 9%,transparent)}
+.app-shell .card,.app-shell .modal{border-color:var(--theme-border)}
 .app-shell .page-title{color:var(--day-mode-contrast);transition:color .2s}
+.app-shell .section-head{padding-left:10px;border-left:2px solid var(--day-mode-accent)}
 .app-shell .focus-card{border-color:var(--day-mode-border);background:linear-gradient(145deg,var(--day-mode-tint),var(--panel))}
 .app-shell .focus-card:before{background:var(--day-mode-glow)}
 .app-shell .day-command{border:1px solid var(--day-mode-border);background:linear-gradient(120deg,var(--day-mode-tint),var(--panel));box-shadow:inset 3px 0 var(--day-mode-accent)}
 .app-shell .day-command>button svg{color:var(--day-mode-accent)}
 .app-shell .today-planning-details,.app-shell .day-calendar-builder{border-color:var(--day-mode-border)}
-.app-shell .today-planning-details>summary,.app-shell .day-calendar-builder>summary{box-shadow:inset 3px 0 var(--day-mode-accent);background:color-mix(in srgb,var(--day-mode-accent) 7%,var(--panel))}
+.app-shell .today-planning-details>summary,.app-shell .day-calendar-builder>summary{box-shadow:inset 3px 0 var(--day-mode-accent);background:color-mix(in srgb,var(--day-mode-accent) 12%,var(--panel))}
 .app-shell .day-calendar-plan-capacity:not(.overload){border-color:var(--day-mode-border);background:var(--day-mode-tint);color:var(--day-mode-contrast)}
+.app-shell .day{border-color:var(--theme-border);background:color-mix(in srgb,var(--theme-surface-2) 72%,var(--theme-bg))}
+.app-shell .day:hover,.app-shell .day.selected{border-color:var(--theme-accent);background:color-mix(in srgb,var(--theme-accent) 18%,var(--theme-surface))}
+.app-shell .day.today .day-number{background:var(--theme-accent);color:var(--theme-bg)}
+.app-shell .quick-add:hover{border-color:var(--theme-accent);color:var(--theme-accent-soft)}
+.app-shell .range{accent-color:var(--theme-accent)}
+.app-shell .inline-action,.app-shell .today-checklist-toggle,.app-shell .section-link,.app-shell .next-lesson-btn{color:var(--theme-accent-soft)}
+.app-shell .today-checklist-toggle:hover{color:var(--theme-highlight)}
+.app-shell .inbox-trigger b,.app-shell .homework-btn b{background:var(--theme-accent);color:var(--theme-bg)}
+.app-shell .timeline-layers.active{border-color:var(--theme-accent);background:var(--theme-accent-deep);color:var(--theme-accent-soft)}
+.app-shell .day-calendar-event:not(.day-calendar-event--priority-high):not(.day-calendar-event--priority-medium):not(.day-calendar-event--priority-normal):not(.day-calendar-event--class):not(.day-calendar-event--commute):not(.day-calendar-event--homework):not(.day-calendar-event--habit):not(.day-calendar-event--rest){border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface-2))}
+.app-shell .weekly24-event-task:not(.weekly24-event-priority-high):not(.weekly24-event-priority-medium):not(.weekly24-event-priority-normal){border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface-2));color:var(--theme-accent-soft)}
+.app-shell button:focus-visible,.app-shell a:focus-visible,.app-shell input:focus-visible,.app-shell select:focus-visible,.app-shell textarea:focus-visible,.app-shell summary:focus-visible,.app-shell [tabindex]:focus-visible{outline-color:var(--theme-accent-soft)}
+.app-shell .homework-plan-head>b,.app-shell .homework-due,.app-shell .homework-btn,.app-shell .mini-btn,.app-shell .mini-add-set,.app-shell .intention-badge,.app-shell .focus-option-date,.app-shell .setting-card code{color:var(--theme-accent-soft)}
+.app-shell .homework-due{color:var(--theme-accent-soft)!important}
+.app-shell .homework-btn,.app-shell .mini-btn,.app-shell .mini-add-set,.app-shell .inbox-list>div>button:not(.close){border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 12%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .homework-prompt:hover{background:color-mix(in srgb,var(--theme-accent) 10%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .focus-launch{border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .focus-change{border-color:var(--theme-border);background:var(--theme-surface-2);color:var(--theme-muted)}
+.app-shell .timeline-layers{border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 11%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .weekday-picker button.active,.app-shell .reason-grid button.active{border-color:var(--theme-accent);background:color-mix(in srgb,var(--theme-accent) 22%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .session-note{border-left-color:var(--theme-accent)}
+.app-shell .day-calendar-event--homework,.app-shell .timeline-event.homework-event{border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 20%,var(--theme-surface-2));color:var(--theme-accent-soft)}
+.app-shell .day-calendar-boundary--sleep{border-color:var(--theme-accent)}
+.app-shell .day-calendar-boundary--sleep>span{background:color-mix(in srgb,var(--theme-accent) 25%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .day-calendar-day-boundaries>.day-calendar-day-boundary--sleep{border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 10%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .weekly24-announcement,.app-shell .weekly-plan-workout>svg:nth-child(2){color:var(--theme-accent-soft)}
+.app-shell .intention-badge{background:color-mix(in srgb,var(--theme-accent) 18%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .smart-focus-option{border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 12%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .smart-focus-option small{color:var(--theme-muted)}
+.app-shell .toast button{color:var(--theme-accent-deep)}
+.app-shell .session-note{border-left-color:var(--theme-accent);background:color-mix(in srgb,var(--theme-accent) 9%,var(--theme-surface))}
+.app-shell .session-note span{color:var(--theme-muted)}
+.app-shell .weekly24-rest-options button{border-color:var(--theme-border);background:var(--theme-surface);color:var(--theme-text)}
+.app-shell .weekly24-rest-options button:hover,.app-shell .weekly24-rest-options button:focus-visible{border-color:var(--theme-accent);background:color-mix(in srgb,var(--theme-accent) 15%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .weekly24-rest-options kbd{border-color:var(--day-mode-border);background:color-mix(in srgb,var(--theme-accent) 22%,var(--theme-surface));color:var(--theme-accent-soft)}
+.app-shell .weekly24-selection{border-color:var(--theme-accent)}
+.app-shell .weekly24-selection span{background:color-mix(in srgb,var(--theme-accent) 25%,var(--theme-surface));color:var(--theme-accent-soft)}
 .day-mode-badge{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 8px;border:1px solid color-mix(in srgb,var(--day-mode-color) 34%,var(--line));border-radius:999px;background:color-mix(in srgb,var(--day-mode-color) 9%,var(--panel));color:var(--day-mode-color);font-size:9px;font-weight:700;line-height:1.2}
 .day-mode-badge i{display:block;width:8px;height:8px;flex:0 0 8px;border-radius:50%;background:var(--day-mode-color);box-shadow:0 0 8px color-mix(in srgb,var(--day-mode-color) 34%,transparent)}
 .calendar-toolbar-title{display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-width:0}
