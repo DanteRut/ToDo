@@ -3,7 +3,7 @@ import { REST_ACTIVITIES, hasScheduleConflict, isWakePlanComplete, timeToMinute 
 
 describe('weekly wake and rest planning', () => {
   it('provides the requested rest choices with distinct numeric shortcuts', () => {
-    expect(REST_ACTIVITIES.map(activity => activity.shortcut)).toEqual(['1', '2', '3', '4', '5', '6', '7'])
+    expect(REST_ACTIVITIES.map(activity => activity.shortcut)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8', '9'])
     expect(REST_ACTIVITIES.map(activity => activity.title)).toEqual([
       'Прогулка',
       'Дневной сон',
@@ -11,7 +11,9 @@ describe('weekly wake and rest planning', () => {
       'Дыхание Вим Хофа',
       'Просмотр бильярда',
       'Горячий душ',
-      'Игра на гитаре'
+      'Игра на гитаре',
+      'Пауза без экрана',
+      'Лёгкая активность'
     ])
   })
 

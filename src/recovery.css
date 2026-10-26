@@ -1,0 +1,148 @@
+/* Daily load/recovery planning and the user's supplement schedule. Colors follow the selected day mode. */
+.day-balance-card,
+.supplement-planner{min-width:0;margin:0 0 14px;padding:18px;background:linear-gradient(145deg,color-mix(in srgb,var(--day-mode-accent) 5%,var(--panel)),var(--panel))}
+.day-balance-heading,
+.supplement-planner-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;margin-bottom:12px}
+.day-balance-heading h2,
+.supplement-planner-heading h2{margin:4px 0 0;font-size:17px;line-height:1.2;letter-spacing:-.02em}
+.day-balance-settings-toggle{min-height:34px;padding:0 10px;font-size:10px}
+.day-balance-status{display:grid;gap:4px;margin-bottom:14px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--day-mode-accent);border-radius:11px;background:color-mix(in srgb,var(--day-mode-accent) 7%,var(--panel2))}
+.day-balance-status strong{font-size:11px;color:var(--day-mode-contrast)}
+.day-balance-status span{color:var(--muted);font-size:9px;line-height:1.45}
+.day-balance-status.status-deficit{border-left-color:#fb7185;background:color-mix(in srgb,#fb7185 9%,var(--panel2))}
+.day-balance-status.status-deficit strong{color:#fda4af}
+.day-balance-status.status-high-load{border-left-color:#f59e0b;background:color-mix(in srgb,#f59e0b 8%,var(--panel2))}
+.day-balance-status.status-high-load strong{color:#fcd34d}
+.day-balance-status.status-balanced{border-left-color:#34d399;background:color-mix(in srgb,#34d399 7%,var(--panel2))}
+.day-balance-status.status-balanced strong{color:#6ee7b7}
+.day-balance-bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0 0 13px}
+.day-balance-bar-block{display:grid;gap:7px;min-width:0}
+.day-balance-bar-label{display:flex;align-items:center;justify-content:space-between;gap:7px;min-width:0;color:var(--muted);font-size:9px}
+.day-balance-bar-label>span{display:flex;align-items:center;gap:6px;min-width:0}
+.day-balance-bar-label svg{flex:0 0 auto;color:var(--day-mode-accent)}
+.day-balance-bar-label strong{flex:0 0 auto;color:var(--text,#f4f4f5);font-size:10px;font-variant-numeric:tabular-nums}
+.day-balance-progress{height:8px;overflow:hidden;border:1px solid color-mix(in srgb,var(--line) 75%,transparent);border-radius:999px;background:color-mix(in srgb,var(--panel2) 82%,#000)}
+.day-balance-progress span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--day-mode-accent),var(--day-mode-contrast));transition:width .3s ease}
+.day-balance-bar-block.recovery .day-balance-progress span{background:linear-gradient(90deg,#10b981,#6ee7b7)}
+.day-balance-bar-block.load .day-balance-progress span{background:linear-gradient(90deg,var(--day-mode-accent),var(--day-mode-contrast))}
+.day-balance-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.day-balance-metric{display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:7px;min-width:0;padding:8px;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--panel2) 65%,transparent)}
+.day-balance-metric>svg{color:var(--day-mode-accent)}
+.day-balance-metric>span{display:grid;gap:3px;min-width:0}
+.day-balance-metric strong{overflow:hidden;color:var(--text,#f4f4f5);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.day-balance-metric small{overflow:hidden;color:var(--muted);font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.day-balance-metric>b{color:var(--day-mode-contrast);font-size:9px;font-variant-numeric:tabular-nums}
+.day-balance-metric.missing>b{color:#fbbf24}
+.day-balance-sleep-note{display:flex;align-items:center;flex-wrap:wrap;gap:5px 12px;margin-top:9px;color:var(--muted);font-size:8px;line-height:1.4}
+.day-balance-sleep-note .section-link{padding:0;border:0;background:none;font-size:8px;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.day-balance-rest-plan{margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+.day-balance-rest-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.day-balance-rest-heading strong{font-size:9px}
+.day-balance-rest-heading .section-link{padding:0;border:0;background:none;font-size:8px;cursor:pointer}
+.day-balance-rest-plan ul{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0 0;padding:0;list-style:none}
+.day-balance-rest-plan li{display:flex;align-items:center;gap:7px;max-width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+.day-balance-rest-plan li span{overflow:hidden;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.day-balance-rest-plan li small{flex:0 0 auto;color:var(--muted);font-size:7px}
+.day-balance-rest-plan>p{margin:7px 0 0;color:var(--muted);font-size:8px}
+.day-balance-targets{margin-top:11px;border-top:1px solid var(--line);padding-top:8px}
+.day-balance-targets summary{display:flex;align-items:center;gap:6px;width:fit-content;color:var(--muted);font-size:8px;cursor:pointer;list-style:none}
+.day-balance-targets summary::-webkit-details-marker{display:none}
+.day-balance-targets summary svg{color:var(--day-mode-accent)}
+.day-balance-target-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;align-items:end;gap:8px;margin-top:10px}
+.day-balance-target-fields label{display:grid;gap:5px;min-width:0;color:var(--muted);font-size:8px}
+.day-balance-target-fields .input{min-width:0;padding:8px 9px;font-size:10px}
+.day-balance-target-fields .primary-btn{min-height:35px;padding:0 11px;font-size:9px;white-space:nowrap}
+.day-balance-disclaimer{margin:10px 0 0;color:var(--muted);font-size:9px;line-height:1.5}
+.day-balance-method{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.day-balance-method summary{width:fit-content;color:var(--day-mode-contrast);font-size:9px;font-weight:650;cursor:pointer}
+.day-balance-method ul{display:grid;gap:6px;margin:8px 0 0;padding-left:16px;color:var(--muted);font-size:9px;line-height:1.5}
+.day-balance-method strong{color:var(--text,#f4f4f5)}
+.day-balance-source{display:inline-flex;align-items:center;gap:4px;margin-top:5px;color:var(--muted);font-size:8px;text-decoration:none}
+.day-balance-source:hover{color:var(--day-mode-contrast);text-decoration:underline}
+
+.supplement-planner-heading{align-items:flex-start}
+.supplement-planner-title{display:flex;align-items:center;gap:9px;min-width:0}
+.supplement-planner-icon{display:grid;width:34px;height:34px;flex:0 0 34px;place-items:center;border:1px solid var(--day-mode-border);border-radius:11px;background:var(--day-mode-tint);color:var(--day-mode-contrast)}
+.supplement-planner-title h2{font-size:15px}
+.supplement-intake-summary{display:grid;gap:2px;flex:0 0 auto;text-align:right}
+.supplement-intake-summary strong{color:var(--day-mode-contrast);font-size:13px;font-variant-numeric:tabular-nums}
+.supplement-intake-summary span{color:var(--muted);font-size:7px}
+.supplement-planner-note{margin:0 0 11px;color:var(--muted);font-size:8px;line-height:1.45}
+.supplement-meal-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.supplement-meal-card{min-width:0;padding:10px;border:1px solid var(--line);border-radius:12px;background:color-mix(in srgb,var(--panel2) 64%,transparent)}
+.supplement-meal-card>header{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.supplement-meal-card h3{margin:0;font-size:10px}
+.supplement-meal-card>header small{color:var(--muted);font-size:7px;white-space:nowrap}
+.supplement-meal-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px;min-height:33px;padding:4px 0}
+.supplement-meal-row+.supplement-meal-row{border-top:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.supplement-plan-check{display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer}
+.supplement-plan-check input,.supplement-taken-check input{width:15px;height:15px;flex:0 0 15px;margin:0;accent-color:var(--day-mode-accent)}
+.supplement-plan-check>span{display:grid;gap:2px;min-width:0}
+.supplement-plan-check strong{overflow:hidden;color:var(--text,#f4f4f5);font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.supplement-plan-check small{overflow:hidden;color:var(--muted);font-size:7px;text-overflow:ellipsis;white-space:nowrap}
+.supplement-taken-check{display:flex;align-items:center;gap:3px;color:#6ee7b7;font-size:7px;white-space:nowrap;cursor:pointer}
+.supplement-taken-check input{width:13px;height:13px;flex-basis:13px}
+.supplement-empty-meal{margin:9px 0 2px;color:var(--muted);font-size:7px}
+.supplement-empty-state{display:flex;align-items:center;gap:8px;padding:12px;border:1px dashed var(--line);border-radius:10px;color:var(--muted);font-size:8px;line-height:1.4}
+.supplement-empty-state svg{flex:0 0 auto;color:var(--day-mode-accent)}
+.supplement-management{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.supplement-management-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:4px 0;border:0;background:transparent;color:var(--day-mode-contrast);font-size:8px;font-weight:650;text-align:left;cursor:pointer}
+.supplement-management-toggle>span{display:flex;align-items:center;gap:5px}
+.supplement-management-toggle>svg{transition:transform .16s}
+.supplement-management-toggle>svg.rotated{transform:rotate(180deg)}
+.supplement-management-panel{margin-top:9px}
+.supplement-form{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.2fr) auto;align-items:end;gap:8px}
+.supplement-form>label{display:grid;gap:4px;min-width:0;color:var(--muted);font-size:8px}
+.supplement-form>label span{color:var(--muted);font-weight:400}
+.supplement-form .input{min-width:0;padding:8px 9px;font-size:9px}
+.supplement-form-actions{display:flex;gap:5px}
+.supplement-form-actions .primary-btn,.supplement-form-actions .ghost-btn{min-height:34px;padding:0 9px;font-size:8px;white-space:nowrap}
+.supplement-list{display:grid;gap:4px;margin:8px 0 0;padding:0;list-style:none}
+.supplement-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--panel2) 60%,transparent)}
+.supplement-list li>span{display:grid;gap:2px;min-width:0}
+.supplement-list li strong{overflow:hidden;font-size:8px;text-overflow:ellipsis;white-space:nowrap}
+.supplement-list li small{overflow:hidden;color:var(--muted);font-size:7px;text-overflow:ellipsis;white-space:nowrap}
+.supplement-list li>div{display:flex;gap:3px;flex:0 0 auto}
+.supplement-list .icon-btn{width:27px;min-height:27px;padding:0;border-radius:8px}
+.supplement-list .icon-btn.danger{color:#fb7185}
+.calendar-day-view{display:grid;gap:12px;min-width:0}
+
+@media(max-width:760px){
+  .day-balance-card,.supplement-planner{padding:14px}
+  .day-balance-bars{gap:11px}
+  .day-balance-metrics{grid-template-columns:1fr}
+  .day-balance-metric{min-height:42px}
+  .day-balance-target-fields{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .day-balance-target-fields .primary-btn{grid-column:1/-1;justify-self:end}
+  .supplement-meal-grid{grid-template-columns:1fr;gap:6px}
+  .supplement-meal-card{padding:9px}
+  .supplement-meal-row{min-height:36px}
+}
+@media(max-width:520px){
+  .day-balance-heading{align-items:flex-start}
+  .day-balance-heading h2{font-size:15px}
+  .day-balance-settings-toggle{min-height:32px;padding:0 8px;font-size:8px}
+  .day-balance-status{padding:9px 10px}
+  .day-balance-bar-label{align-items:flex-start;flex-direction:column;gap:4px}
+  .day-balance-bar-label strong{font-size:9px}
+  .day-balance-progress{height:7px}
+  .day-balance-target-fields{grid-template-columns:1fr 1fr}
+  .day-balance-target-fields label:first-child{grid-column:1/-1}
+  .day-balance-target-fields .primary-btn{grid-column:1/-1;width:100%}
+  .supplement-planner-heading{align-items:center}
+  .supplement-planner-title .eyebrow{font-size:8px}
+  .supplement-planner-title h2{font-size:13px}
+  .supplement-intake-summary strong{font-size:11px}
+  .supplement-form{grid-template-columns:1fr 1fr}
+  .supplement-form-actions{grid-column:1/-1}
+  .supplement-form-actions .primary-btn{flex:1}
+}
+@media(max-width:360px){
+  .day-balance-card,.supplement-planner{padding:12px}
+  .day-balance-metric{grid-template-columns:14px minmax(0,1fr) auto;padding:7px}
+  .day-balance-metric strong{font-size:8px}
+  .day-balance-sleep-note{gap:5px 8px}
+  .supplement-planner-heading{align-items:flex-start}
+  .supplement-intake-summary span{max-width:76px}
+  .supplement-meal-card>header{align-items:flex-start}
+}

@@ -6,6 +6,8 @@ export const REST_ACTIVITIES = [
   { id: 'billiards', shortcut: '5', title: 'Просмотр бильярда', duration: 45 },
   { id: 'hot-shower', shortcut: '6', title: 'Горячий душ', duration: 20 },
   { id: 'guitar', shortcut: '7', title: 'Игра на гитаре', duration: 45 },
+  { id: 'screen-break', shortcut: '8', title: 'Пауза без экрана', duration: 10 },
+  { id: 'light-activity', shortcut: '9', title: 'Лёгкая активность', duration: 15 },
 ]
 
 export function timeToMinute(value) {

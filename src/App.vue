@@ -30,10 +30,14 @@ import { hasScheduleConflict, isWakePlanComplete, REST_ACTIVITIES, timeToMinute 
 import { compareDeadlines, deadlineDateKey, deadlineTone, shouldStopDeadlineRecurrence } from './utils/deadlines'
 import { buildProjectTreeEntries, filterProjectTreeEntries } from './utils/projectTree'
 import { DAY_MODES, dayModeForDate, normalizeDayMode, withWeeklyDayMode } from './utils/dayModes'
+import { normalizeDayBalanceTargets, sleepWindowMinutes } from './utils/dayWellbeing'
+import { setSupplementPlanned, setSupplementTaken } from './utils/supplementPlan'
 import { CLASS_SCHEDULE, DAY_NAMES, SEMESTER, academicWeek, classesForDate, isInSemester, nextStudyDate, nextClassOccurrence } from './data/classSchedule'
 import StudyWeekOverview from './components/StudyWeekOverview.vue'
 import WeeklyRoutinePlanner from './components/WeeklyRoutinePlanner.vue'
 import DayCalendar from './components/DayCalendar.vue'
+import DayBalance from './components/DayBalance.vue'
+import SupplementPlanner from './components/SupplementPlanner.vue'
 
 const nav = [
   { id:'today', label:'Сегодня', icon:Sun }, { id:'tasks', label:'План', icon:ListTodo },
@@ -476,6 +480,47 @@ const selectedDayModeInfo = computed(() => DAY_MODES.find(mode=>mode.id===displa
 const dayScheduleWakeTime = computed(() => todayReview.value?.wakeTime ?? weeklyPlanRecord.value?.wakeTimes?.[selectedDate.value] ?? '')
 const dayScheduleWorkEndTime = computed(() => todayReview.value?.workEndTime || '')
 const dayScheduleSleepTime = computed(() => todayReview.value?.sleepTime || '')
+const dayBalanceSettingsRecord = computed(() => store.state.records.find(record => record.type === 'dayBalanceSettings') || null)
+const dayBalanceTargets = computed(() => normalizeDayBalanceTargets(dayBalanceSettingsRecord.value?.targets))
+const selectedDayRestBlocks = computed(() => (weeklyPlanRecord.value?.restBlocks || [])
+  .filter(block => block.dateKey === selectedDate.value)
+  .map(block => {
+    const activity = REST_ACTIVITIES.find(option => option.id === block.activityId)
+    return {
+      id: block.id,
+      activityId: block.activityId,
+      title: activity?.title || block.title || 'Отдых',
+      startTime: block.startTime,
+      duration: Number(block.duration) || activity?.duration || 30
+    }
+  }))
+const selectedDayWalkMinutes = computed(() => selectedDayRestBlocks.value
+  .filter(block => ['walk', 'light-activity'].includes(block.activityId))
+  .reduce((sum, block) => sum + block.duration, 0))
+const selectedDayRestMinutes = computed(() => selectedDayRestBlocks.value
+  .filter(block => !['walk', 'light-activity'].includes(block.activityId))
+  .reduce((sum, block) => sum + block.duration, 0))
+const selectedDaySleepMeasurement = computed(() => {
+  const latest = store.state.records
+    .filter(record => record.type === 'measurement' && record.date === selectedDate.value)
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0]
+  return latest && Number(latest.sleep) > 0 ? latest : null
+})
+const recoveryNextDayKey = computed(() => format(addDays(parseISO(selectedDate.value), 1), 'yyyy-MM-dd'))
+const nextDayWakeTime = computed(() => {
+  const nextReview = store.state.records.find(record => record.type === 'dailyReview' && record.date === recoveryNextDayKey.value)
+  const nextPlan = weeklyPlanForDate(recoveryNextDayKey.value)
+  return nextReview?.wakeTime || nextPlan?.wakeTimes?.[recoveryNextDayKey.value] || todayReview.value?.wakeTime || weeklyPlanRecord.value?.wakeTimes?.[selectedDate.value] || ''
+})
+const plannedSleepMinutes = computed(() => sleepWindowMinutes(dayScheduleSleepTime.value, nextDayWakeTime.value))
+const daySleepMinutes = computed(() => selectedDaySleepMeasurement.value
+  ? Math.round(Number(selectedDaySleepMeasurement.value.sleep) * 60)
+  : plannedSleepMinutes.value)
+const daySleepSource = computed(() => selectedDaySleepMeasurement.value ? 'факт' : plannedSleepMinutes.value !== null ? 'план' : 'не задано')
+const userSupplements = computed(() => store.state.records
+  .filter(record => record.type === 'supplement' && record.status !== 'archived')
+  .sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0) || String(a.title || '').localeCompare(String(b.title || ''), 'ru')))
+const supplementPlanForSelectedDate = computed(() => store.state.records.find(record => record.type === 'supplementPlan' && record.date === selectedDate.value) || null)
 const dayScheduleEvents = computed(() => unifiedTimeline.value.filter(item=>item.end>6*60&&item.start<24*60))
 const calendarTaskUnits = computed(() => calendarTaskUnitsForDate(selectedDate.value,{includeUnscheduled:true}))
 const dayScheduleSummary = computed(() => {
@@ -665,8 +710,61 @@ function projectIdsUnder(projectId,seen=new Set()){if(seen.has(projectId))return
 function projectProgress(project){const ids=projectIdsUnder(project.id);const tasks=store.tasks.value.filter(task=>ids.includes(task.projectId));return tasks.length?Math.round(tasks.filter(task=>task.done).length/tasks.length*100):0}
 function projectPath(project){if(!project)return'Без проекта';const parts=[project.title];let parent=store.projects.value.find(item=>item.id===project.parentProjectId);const seen=new Set([project.id]);while(parent&&!seen.has(parent.id)){seen.add(parent.id);parts.unshift(parent.title);parent=store.projects.value.find(item=>item.id===parent.parentProjectId)}return parts.join(' › ')}
 function taskProjectInfo(task){return task?.projectId?taskProjectInfoById.value.get(task.projectId)||null:null}
-function openMeasurement(){editingMeasurement.value={type:'measurement',date:store.today(),weight:'',sleep:'',pulse:'',energy:3,backPain:0};measurementOpen.value=true}
-async function saveMeasurement(){await store.add(editingMeasurement.value);measurementOpen.value=false;flash('Самочувствие записано');syncSoon()}
+function openMeasurement(dateKey=store.today()){
+  const existing=store.state.records
+    .filter(record=>record.type==='measurement'&&record.date===dateKey)
+    .sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))[0]
+  editingMeasurement.value=existing?{...existing}:{type:'measurement',date:dateKey,weight:'',sleep:'',pulse:'',energy:3,backPain:0}
+  measurementOpen.value=true
+}
+async function saveMeasurement(){if(editingMeasurement.value.id)await store.save(editingMeasurement.value);else await store.add(editingMeasurement.value);measurementOpen.value=false;flash('Самочувствие записано');syncSoon()}
+async function saveDayBalanceTargets(targets){
+  const existing=dayBalanceSettingsRecord.value
+  await store.save({...existing,id:existing?.id||'day-balance-settings',type:'dayBalanceSettings',targets:normalizeDayBalanceTargets(targets)})
+  flash('Личные цели восстановления сохранены')
+  syncSoon()
+}
+let supplementPlanWriteQueue=Promise.resolve()
+function updateSupplementPlan(payload,taken=false){
+  const {mealId,supplementId,checked}=payload
+  const dateKey=selectedDate.value
+  const write=async()=>{
+    const existing=store.state.records.find(record=>record.type==='supplementPlan'&&record.date===dateKey)||null
+    const source=existing||{meals:{}}
+    const meals=taken
+      ?setSupplementTaken(source,mealId,supplementId,checked)
+      :setSupplementPlanned(source,mealId,supplementId,checked)
+    await store.save({...source,id:existing?.id||`supplement-plan:${dateKey}`,type:'supplementPlan',date:dateKey,meals})
+    syncSoon()
+  }
+  const pending=supplementPlanWriteQueue.then(write,write)
+  supplementPlanWriteQueue=pending.catch(()=>{})
+  return pending
+}
+async function addSupplement({title,dose}){
+  const normalizedTitle=String(title||'').trim()
+  if(!normalizedTitle)return
+  if(userSupplements.value.some(item=>String(item.title||'').trim().toLocaleLowerCase('ru')===normalizedTitle.toLocaleLowerCase('ru'))){flash('Такая добавка уже есть в твоём списке');return}
+  await store.add({type:'supplement',title:normalizedTitle,dose:String(dose||'').trim(),order:userSupplements.value.length+1})
+  flash('Добавка добавлена в личный список')
+  syncSoon()
+}
+async function editSupplement({id,title,dose}){
+  const existing=userSupplements.value.find(item=>item.id===id)
+  const normalizedTitle=String(title||'').trim()
+  if(!existing||!normalizedTitle)return
+  if(userSupplements.value.some(item=>item.id!==id&&String(item.title||'').trim().toLocaleLowerCase('ru')===normalizedTitle.toLocaleLowerCase('ru'))){flash('Такая добавка уже есть в твоём списке');return}
+  await store.save({...existing,title:normalizedTitle,dose:String(dose||'').trim()})
+  flash('Личный список обновлён')
+  syncSoon()
+}
+async function removeSupplement(id){
+  const supplement=userSupplements.value.find(item=>item.id===id)
+  if(!supplement||!confirm(`Удалить «${supplement.title}» из личного списка? История планов останется сохранена.`))return
+  await store.remove(id)
+  flash('Добавка удалена из активного списка')
+  syncSoon()
+}
 async function requestNotifications(){if(!window.Notification){notificationPermission.value='unsupported';return}notificationPermission.value=await window.Notification.requestPermission();if(notificationPermission.value==='granted')new window.Notification('Momentum',{body:'Уведомления включены'})}
 async function sendNotification(key,title,body){if(notificationPermission.value!=='granted'||localStorage.getItem(`momentum.notice.${key}`))return;localStorage.setItem(`momentum.notice.${key}`,'1');const registration=await navigator.serviceWorker?.getRegistration();if(registration)registration.showNotification(title,{body,icon:'./icon-192.png'});else new window.Notification(title,{body})}
 async function releaseExpiredChainTasks(dateKey=todayKey.value){
@@ -1757,13 +1855,37 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
             <div class="day-calendar-inline-action"><button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="13"/> Границы дня</button></div>
             <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </details>
+          <DayBalance
+            :load-minutes="workloadMinutes"
+            :sleep-minutes="daySleepMinutes"
+            :planned-sleep-minutes="plannedSleepMinutes"
+            :sleep-source="daySleepSource"
+            :bed-time="dayScheduleSleepTime"
+            :planned-wake-time="nextDayWakeTime"
+            :walk-minutes="selectedDayWalkMinutes"
+            :rest-minutes="selectedDayRestMinutes"
+            :rest-blocks="selectedDayRestBlocks"
+            :targets="dayBalanceTargets"
+            @save-targets="saveDayBalanceTargets"
+            @edit-sleep="openReview('morning')"
+            @edit-measurement="openMeasurement(selectedDate)"
+            @open-weekly="openWeeklyPlanner(selectedDate)"
+          />
+          <SupplementPlanner
+            :supplements="userSupplements"
+            :plan="supplementPlanForSelectedDate"
+            @toggle-planned="updateSupplementPlan($event)"
+            @toggle-taken="updateSupplementPlan($event, true)"
+            @add-supplement="addSupplement"
+            @edit-supplement="editSupplement"
+            @remove-supplement="removeSupplement"
+          />
           <div class="grid-dashboard">
             <section>
               <div class="card hero-card today-focus-card">
-                <div class="eyebrow today-focus-eyebrow">Фокус дня · нагрузка / 6 ч</div>
+                <div class="eyebrow today-focus-eyebrow">Фокус дня</div>
                 <h2 class="today-focus-title">{{activeTask?.title || 'День свободен — выбери главное'}}</h2>
                 <div class="today-focus-meta"><span>{{activeTask ? `${activeTask.startTime||'Без времени'} · ${activeTask.duration||0} мин` : 'Добавь цепочку действий, и план станет ясным'}}</span><span v-if="taskProjectInfo(activeTask)" class="task-project-badge focus-project-badge" :style="{'--task-project-color':taskProjectInfo(activeTask).color}" :title="`Проект: ${taskProjectInfo(activeTask).name}`"><FolderKanban :size="11" aria-hidden="true"/><span>{{taskProjectInfo(activeTask).name}}</span></span></div>
-                <div class="progress-row" :class="{overloaded:workloadPercent>100}" title="Загрузка относительно цели 6 часов"><div class="progress-track" role="meter" aria-label="Загруженность относительно цели 6 часов" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.min(workloadPercent,100)" :aria-valuetext="`${workloadPercent}% от 6 ч`"><div class="progress-fill" :style="{width:Math.min(workloadPercent,100)+'%'}"></div></div><div class="progress-label">{{workloadPercent}}%</div></div>
                 <div v-if="activeTask" class="focus-controls"><button type="button" class="focus-change" aria-haspopup="dialog" @click.stop="openFocusPicker"><SlidersHorizontal :size="14"/> Сменить фокус</button><button class="focus-launch" @click="launchFocusMode"><Maximize2 :size="15"/> Режим «Сейчас»</button></div>
               </div>
               <article v-if="nextClass" class="next-class-card card">
@@ -1867,6 +1989,31 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
               </div>
               <button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="15"/> Выбрать на день</button>
             </div>
+            <DayBalance
+              :load-minutes="workloadMinutes"
+              :sleep-minutes="daySleepMinutes"
+              :planned-sleep-minutes="plannedSleepMinutes"
+              :sleep-source="daySleepSource"
+              :bed-time="dayScheduleSleepTime"
+              :planned-wake-time="nextDayWakeTime"
+              :walk-minutes="selectedDayWalkMinutes"
+              :rest-minutes="selectedDayRestMinutes"
+              :rest-blocks="selectedDayRestBlocks"
+              :targets="dayBalanceTargets"
+              @save-targets="saveDayBalanceTargets"
+              @edit-sleep="openReview('morning')"
+              @edit-measurement="openMeasurement(selectedDate)"
+              @open-weekly="openWeeklyPlanner(selectedDate)"
+            />
+            <SupplementPlanner
+              :supplements="userSupplements"
+              :plan="supplementPlanForSelectedDate"
+              @toggle-planned="updateSupplementPlan($event)"
+              @toggle-taken="updateSupplementPlan($event, true)"
+              @add-supplement="addSupplement"
+              @edit-supplement="editSupplement"
+              @remove-supplement="removeSupplement"
+            />
             <DayCalendar :events="calendarDayEvents" :task-units="calendarDayTaskUnits" :unscheduled-tasks="calendarDayTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </div>
         </template>
@@ -1914,7 +2061,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
             <div class="card setting-card"><Cloud :size="21" color="#a78bfa"/><h3 style="margin-top:12px">Синхронизация устройств</h3><p>{{cloud.connected?`Выполнен вход: ${cloud.user?.email}. Последняя синхронизация ${formatSync()}. ${dirtyRecords} локальных изменений ожидают отправки.`:'Подключите бесплатный Supabase, чтобы один план был доступен на iPhone и компьютере.'}}</p><button class="primary-btn" @click="cloudOpen=true">{{cloud.connected?'Управление облаком':'Подключить облако'}}</button></div>
             <div v-if="cloud.conflicts.length" class="card setting-card conflict-card"><AlertCircle :size="21" color="#fb7185"/><h3 style="margin-top:12px">Конфликты между устройствами</h3><p>Ничего не перезаписано автоматически. Выбери версию для каждой записи.</p><div v-for="conflict in cloud.conflicts" :key="conflict.id" class="conflict-row"><span>{{conflict.title}}</span><button @click="resolveCloudConflict(conflict.id,'local')">Эта версия</button><button @click="resolveCloudConflict(conflict.id,'remote')">Облачная</button></div></div>
             <div class="card setting-card"><Bell :size="21" color="#f59e0b"/><h3 style="margin-top:12px">Уведомления</h3><p>Напоминания о парах, ДЗ, таймерах и времени подъёма на завтра. Для iPhone приложение должно быть добавлено на экран «Домой».</p><button class="ghost-btn" @click="requestNotifications">{{notificationPermission==='granted'?'Уведомления включены':'Разрешить уведомления'}}</button></div>
-            <div class="card setting-card"><Ruler :size="21" color="#22c55e"/><h3 style="margin-top:12px">Самочувствие и измерения</h3><p v-if="latestMeasurements.length">Последняя запись {{format(parseISO(latestMeasurements[0].date),'d MMM',{locale:ru})}} · вес {{latestMeasurements[0].weight||'—'}} кг · сон {{latestMeasurements[0].sleep||'—'}} ч.</p><p v-else>Вес, сон, пульс, энергия и состояние поясницы — ввод занимает меньше минуты.</p><button class="ghost-btn" @click="openMeasurement"><Plus :size="15"/> Записать</button></div>
+            <div class="card setting-card"><Ruler :size="21" color="#22c55e"/><h3 style="margin-top:12px">Самочувствие и измерения</h3><p v-if="latestMeasurements.length">Последняя запись {{format(parseISO(latestMeasurements[0].date),'d MMM',{locale:ru})}} · вес {{latestMeasurements[0].weight||'—'}} кг · сон {{latestMeasurements[0].sleep||'—'}} ч.</p><p v-else>Вес, сон, пульс, энергия и состояние поясницы — ввод занимает меньше минуты.</p><button class="ghost-btn" @click="openMeasurement(store.today())"><Plus :size="15"/> Записать</button></div>
             <div class="card setting-card"><Clock3 :size="21" color="#a78bfa"/><h3 style="margin-top:12px">План и факт времени</h3><p>{{timeStats.sessions}} фокус-сессий · план {{timeStats.planned}} мин · факт {{timeStats.actual}} мин<span v-if="timeStats.ratio"> · {{timeStats.ratio}}%</span>.</p><button class="ghost-btn" @click="view='today'"><Target :size="15"/> Начать фокус</button></div>
             <div class="card setting-card insight-card"><BarChart3 :size="21" color="#06b6d4"/><h3 style="margin-top:12px">Рабочие выводы</h3><p>Ошибка оценки времени: <strong>{{productivityInsights.estimateError>0?'+':''}}{{productivityInsights.estimateError}}%</strong>. Полностью завершено цепочек: <strong>{{productivityInsights.chainRate}}%</strong>. Переносов: <strong>{{transferStats.count}}</strong>, главная причина — {{transferStats.top}}. В ожидании: {{productivityInsights.waiting}}.</p><small>Это живая аналитика, а не отдельный еженедельный обзор.</small></div>
             <div class="card setting-card"><ShieldCheck :size="21" color="#34d399"/><h3 style="margin-top:12px">Резервные версии</h3><p>Автоматическая копия создаётся раз в день. Хранятся последние 7 версий плюс переносимый JSON.</p><div class="row"><button class="ghost-btn" @click="makeBackup"><Save :size="15"/> Снимок</button><button class="ghost-btn" @click="exportData"><Download :size="15"/> JSON</button><label class="ghost-btn"><Upload :size="15"/> Импорт<input type="file" accept="application/json" hidden @change="importData"/></label></div><div class="backup-list"><button v-for="backup in backups.slice(0,3)" :key="backup.id" @click="restoreLocalBackup(backup.id)">{{format(new Date(backup.createdAt),'d MMM, HH:mm',{locale:ru})}} · {{backup.label}}</button></div></div>
@@ -1935,7 +2082,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
 
     <Transition name="fade"><div v-if="projectOpen" class="modal-backdrop" @click.self="projectOpen=false"><div class="modal" role="dialog" tabindex="-1"><div class="modal-head"><div class="modal-title">{{editingProject.id?'Настроить проект':'Новый проект'}}</div><button type="button" class="close" aria-label="Закрыть диалог" @click="projectOpen=false"><X :size="17"/></button></div><div class="field"><label>Название</label><input class="input" v-model="editingProject.title" autofocus placeholder="Например, Математика"/></div><div class="field"><label>Родительский проект</label><select class="select" v-model="editingProject.parentProjectId"><option :value="null">Корневой проект</option><option v-for="entry in projectParentOptions" :key="entry.project.id" :value="entry.project.id">{{'— '.repeat(entry.depth)}}{{entry.project.title}}</option></select></div><div class="field"><label>Предмет для автоматической привязки ДЗ</label><select class="select" v-model="editingProject.homeworkSubject"><option :value="null">Не привязывать к предмету</option><option v-for="subject in homeworkSubjectOptions" :key="subject" :value="subject">{{subject}}</option></select></div><div class="field"><label>Измеримый результат</label><input class="input" v-model="editingProject.outcome" placeholder="Что означает «готово»?"/></div><div class="row"><div class="field"><label>Целевая дата</label><input class="input" type="date" v-model="editingProject.targetDate"/></div><div class="field"><label>Цвет</label><input class="input color-input" type="color" v-model="editingProject.color"/></div></div><div class="project-modal-task-action"><div><strong>Создать задачу в этом проекте</strong><small>Сначала сохраню проект и изменения, затем открою новую задачу</small></div><button type="button" class="ghost-btn" :disabled="projectTaskCreating||!editingProject.title.trim()" @click="createTaskFromProjectDialog"><Plus :size="14" aria-hidden="true"/> {{projectTaskCreating?'Сохраняю…':'Создать задачу'}}</button></div><div v-if="editingProject.id" class="project-completion-control"><span><strong>{{editingProject.status==='completed'?'Проект завершён':'Проект в работе'}}</strong><small>Задачи и подпроекты не меняют статус автоматически.</small></span><button type="button" class="ghost-btn" :class="{completed:editingProject.status==='completed'}" :aria-pressed="editingProject.status==='completed'" @click="toggleProjectCompletion(editingProject)"><Check v-if="editingProject.status==='completed'" :size="14" aria-hidden="true"/>{{editingProject.status==='completed'?'Возобновить':'Отметить завершённым'}}</button></div><div class="form-actions"><button v-if="editingProject.id" class="ghost-btn danger-btn" style="margin-right:auto" @click="deleteProject"><Archive :size="14"/> Архив</button><button class="ghost-btn" @click="projectOpen=false">Отмена</button><button class="primary-btn" @click="saveProject">Сохранить</button></div></div></div></Transition>
 
-    <Transition name="fade"><div v-if="measurementOpen" class="modal-backdrop" @click.self="measurementOpen=false"><div class="modal" role="dialog" tabindex="-1"><div class="modal-head"><div><div class="eyebrow">Быстрый чек-ин</div><div class="modal-title">Самочувствие</div></div><button type="button" class="close" aria-label="Закрыть диалог" @click="measurementOpen=false"><X :size="17"/></button></div><div class="row"><div class="field"><label>Вес, кг</label><input class="input" type="number" step="0.1" v-model="editingMeasurement.weight"/></div><div class="field"><label>Сон, часов</label><input class="input" type="number" step="0.5" v-model="editingMeasurement.sleep"/></div><div class="field"><label>Пульс</label><input class="input" type="number" v-model="editingMeasurement.pulse"/></div></div><div class="field"><label>Энергия · {{editingMeasurement.energy}}/5</label><input class="range" type="range" min="1" max="5" v-model.number="editingMeasurement.energy"/></div><div class="field"><label>Дискомфорт в пояснице · {{editingMeasurement.backPain}}/10</label><input class="range" type="range" min="0" max="10" v-model.number="editingMeasurement.backPain"/></div><div class="form-actions"><button class="ghost-btn" @click="measurementOpen=false">Отмена</button><button class="primary-btn" @click="saveMeasurement">Сохранить</button></div></div></div></Transition>
+    <Transition name="fade"><div v-if="measurementOpen" class="modal-backdrop" @click.self="measurementOpen=false"><div class="modal" role="dialog" tabindex="-1"><div class="modal-head"><div><div class="eyebrow">Быстрый чек-ин</div><div class="modal-title">Самочувствие</div></div><button type="button" class="close" aria-label="Закрыть диалог" @click="measurementOpen=false"><X :size="17"/></button></div><div class="field measurement-date-field"><label>Дата записи</label><input class="input" type="date" v-model="editingMeasurement.date"/></div><div class="row"><div class="field"><label>Вес, кг</label><input class="input" type="number" step="0.1" v-model="editingMeasurement.weight"/></div><div class="field"><label>Сон, часов</label><input class="input" type="number" step="0.5" v-model="editingMeasurement.sleep"/></div><div class="field"><label>Пульс</label><input class="input" type="number" v-model="editingMeasurement.pulse"/></div></div><div class="field"><label>Энергия · {{editingMeasurement.energy}}/5</label><input class="range" type="range" min="1" max="5" v-model.number="editingMeasurement.energy"/></div><div class="field"><label>Дискомфорт в пояснице · {{editingMeasurement.backPain}}/10</label><input class="range" type="range" min="0" max="10" v-model.number="editingMeasurement.backPain"/></div><div class="form-actions"><button class="ghost-btn" @click="measurementOpen=false">Отмена</button><button class="primary-btn" @click="saveMeasurement">Сохранить</button></div></div></div></Transition>
 
     <Transition name="fade"><div v-if="transferOpen" class="modal-backdrop" @click.self="transferOpen=false"><div class="modal" role="dialog" tabindex="-1"><div class="modal-head"><div><div class="eyebrow">Не обвинять — улучшать систему</div><div class="modal-title">Почему переносим?</div></div><button type="button" class="close" aria-label="Закрыть диалог" @click="transferOpen=false"><X :size="17"/></button></div><div class="reason-grid"><button v-for="reason in ['Не хватило времени','Переоценил силы','Жду другого человека','Помешало срочное','Низкая энергия','Потеряло актуальность']" :key="reason" :class="{active:transferReason===reason}" @click="transferReason=reason">{{reason}}</button></div><div class="form-actions"><button class="ghost-btn" @click="transferOpen=false">Отмена</button><button class="primary-btn" @click="confirmTransfer">Перенести на сегодня</button></div></div></div></Transition>
 

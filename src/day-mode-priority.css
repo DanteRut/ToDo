@@ -252,13 +252,13 @@
   .mobile-nav-options{grid-template-columns:1fr}
 }
 
-/* A compact, quiet focus card: task first, progress and actions secondary. */
+/* A compact, quiet focus card: task first and focus actions secondary. */
 .app-shell .today-focus-card{
   display:grid;
-  grid-template-columns:minmax(0,1fr) auto;
-  grid-template-areas:"eyebrow progress" "title progress" "meta progress" "controls controls";
+  grid-template-columns:minmax(0,1fr);
+  grid-template-areas:"eyebrow" "title" "meta" "controls";
   align-items:center;
-  gap:4px 14px;
+  gap:4px;
   min-height:0;
   padding:15px 17px 14px;
   border-left:3px solid var(--theme-accent);
@@ -270,23 +270,16 @@
 .app-shell .today-focus-card .today-focus-title{grid-area:title;display:-webkit-box;min-width:0;max-width:100%;margin:0;overflow:hidden;overflow-wrap:anywhere;font-size:18px;line-height:1.2;font-weight:760;letter-spacing:-.025em;text-overflow:ellipsis;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .app-shell .today-focus-card .today-focus-meta{grid-area:meta;display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;min-width:0;color:var(--theme-muted);font-size:9px;line-height:1.35}
 .app-shell .today-focus-card .focus-project-badge{margin:0}
-.app-shell .today-focus-card .progress-row{grid-area:progress;display:flex;align-items:center;gap:7px;width:108px;margin:0;justify-self:end}
-.app-shell .today-focus-card .progress-track{height:4px}
-.app-shell .today-focus-card .progress-label{color:var(--theme-accent-soft);font-size:10px;font-variant-numeric:tabular-nums}
-.app-shell .today-focus-card .progress-row.overloaded .progress-fill{background:var(--danger);box-shadow:0 0 7px color-mix(in srgb,var(--danger) 45%,transparent)}
-.app-shell .today-focus-card .progress-row.overloaded .progress-label{color:var(--danger)}
 .app-shell .today-focus-card .focus-controls{position:static;grid-area:controls;display:flex;align-items:center;justify-content:flex-start;gap:6px;margin:4px 0 0;z-index:2}
 .app-shell .today-focus-card .focus-controls button{flex:0 0 auto;min-height:30px;padding:5px 9px;border-radius:8px;font-size:9px;line-height:1.2;box-shadow:none}
 @media(max-width:520px){
-  .app-shell .today-focus-card{gap:3px 9px;padding:13px 14px}
+  .app-shell .today-focus-card{gap:3px;padding:13px 14px}
   .app-shell .today-focus-card .today-focus-title{font-size:17px}
   .app-shell .today-focus-card .today-focus-meta{font-size:8px}
-  .app-shell .today-focus-card .progress-row{width:88px}
   .app-shell .today-focus-card .focus-controls{margin-top:5px}
   .app-shell .today-focus-card .focus-controls button{flex:1 1 0;min-width:0;min-height:30px;padding:5px 7px;font-size:8px}
 }
 @media(max-width:360px){
-  .app-shell .today-focus-card{column-gap:6px;padding:12px}
-  .app-shell .today-focus-card .progress-row{width:80px;gap:5px}
+  .app-shell .today-focus-card{padding:12px}
   .app-shell .today-focus-card .focus-controls button{padding:5px 5px;font-size:7px}
 }
