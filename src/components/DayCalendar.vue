@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { Check, GripVertical } from 'lucide-vue-next'
 import { fromMinutes } from '../utils/dayPlan'
-import { buildDayCalendarPreview, calendarInsertionAtPosition, calendarTaskUnitsFromEvents, DAY_CALENDAR_HOUR_HEIGHT, DAY_CALENDAR_MIN_EVENT_HEIGHT, layoutDayCalendarEvents } from '../utils/dayCalendar'
+import { buildDayCalendarPreview, calendarInsertionAtPosition, calendarTaskUnitsFromEvents, canReturnTaskToPool, DAY_CALENDAR_HOUR_HEIGHT, DAY_CALENDAR_MIN_EVENT_HEIGHT, layoutDayCalendarEvents } from '../utils/dayCalendar'
 import { timeToMinute } from '../utils/weeklyPlan'
 import { DAY_SCHEDULE_END, DAY_SCHEDULE_START, scheduleTimeAtPosition } from '../utils/daySchedule'
 
@@ -15,18 +15,20 @@ const props = defineProps({
   sleepTime: { type: String, default: '' },
   interactive: { type: Boolean, default: false }
 })
-const emit = defineEmits(['schedule-task', 'open-event'])
+const emit = defineEmits(['schedule-task', 'open-event', 'unschedule-task'])
 
 const HOUR_HEIGHT = DAY_CALENDAR_HOUR_HEIGHT
 const HOURS = Array.from({ length: 18 }, (_, index) => index + 6)
 const TOTAL_HEIGHT = HOURS.length * HOUR_HEIGHT
 const TRACK_HEIGHT = TOTAL_HEIGHT + DAY_CALENDAR_MIN_EVENT_HEIGHT
 const track = ref(null)
+const taskPool = ref(null)
 const selectedTaskId = ref('')
 const selectedTime = ref('')
 const draggedTask = ref(null)
 const pointerDrag = ref(null)
 const draggingOver = ref(false)
+const returningToPool = ref(false)
 const dropPreview = ref(null)
 const dropTargetLock = ref(null)
 const suppressedClickTaskId = ref('')
@@ -112,7 +114,8 @@ function removePointerDragListeners() {
   window.removeEventListener('pointercancel', cancelPointerDrag)
 }
 function beginPointerDrag(task, event, sourceEvent = null) {
-  if (!props.interactive || !task || event.button !== 0 || event.isPrimary === false || pointerDrag.value) return
+  const isTouchPointer = event.pointerType === 'touch'
+  if (!props.interactive || !task || (!isTouchPointer && event.button !== 0) || event.isPrimary === false || pointerDrag.value) return
   if (sourceEvent && !canDragEvent(sourceEvent)) return
 
   pointerDrag.value = {
@@ -144,11 +147,16 @@ function activatePointerDrag(drag) {
   draggedTask.value = drag.task
   selectedTaskId.value = drag.task.id
   selectedTime.value = ''
+  returningToPool.value = false
   dropPreview.value = null
   dropTargetLock.value = null
 }
 function isPointerOverTrack(event) {
   const rect = track.value?.getBoundingClientRect()
+  return Boolean(rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)
+}
+function isPointerOverTaskPool(event) {
+  const rect = taskPool.value?.getBoundingClientRect()
   return Boolean(rect && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)
 }
 function suppressDraggedClick(taskId) {
@@ -161,7 +169,7 @@ function suppressDraggedClick(taskId) {
   }, 300)
 }
 function consumeSuppressedClick(taskId, event) {
-  if (!taskId || suppressedClickTaskId.value !== taskId) return false
+  if (!suppressTrackClick.value && (!taskId || suppressedClickTaskId.value !== taskId)) return false
   event.preventDefault()
   event.stopPropagation()
   suppressedClickTaskId.value = ''
@@ -184,9 +192,11 @@ function handlePointerDragMove(event) {
     draggingOver.value = false
     dropPreview.value = null
     dropTargetLock.value = null
+    returningToPool.value = drag.fromSchedule && canReturnTaskToPool(drag.task) && isPointerOverTaskPool(event)
     return
   }
 
+  returningToPool.value = false
   draggingOver.value = true
   previewAtPointer(event, drag.task)
 }
@@ -199,9 +209,22 @@ function finishPointerDrag(event) {
 
   suppressDraggedClick(drag.task.id)
   event.preventDefault()
+  if (drag.fromSchedule && canReturnTaskToPool(drag.task) && isPointerOverTaskPool(event)) {
+    draggedTask.value = null
+    selectedTaskId.value = ''
+    selectedTime.value = ''
+    draggingOver.value = false
+    returningToPool.value = false
+    dropPreview.value = null
+    dropTargetLock.value = null
+    emit('unschedule-task', { task: drag.task })
+    announcement.value = `«${drag.task.title}» возвращено в список без времени.`
+    return
+  }
   if (!isPointerOverTrack(event)) {
     draggedTask.value = null
     draggingOver.value = false
+    returningToPool.value = false
     dropPreview.value = null
     dropTargetLock.value = null
     if (drag.fromSchedule) selectedTaskId.value = ''
@@ -213,6 +236,7 @@ function finishPointerDrag(event) {
   if (!preview?.valid) {
     draggedTask.value = null
     draggingOver.value = false
+    returningToPool.value = false
     dropTargetLock.value = null
     if (drag.fromSchedule) selectedTaskId.value = ''
   }
@@ -223,8 +247,10 @@ function cancelPointerDrag(event) {
   removePointerDragListeners()
   pointerDrag.value = null
   if (!drag.active) return
+  suppressDraggedClick(drag.task.id)
   draggedTask.value = null
   draggingOver.value = false
+  returningToPool.value = false
   dropPreview.value = null
   dropTargetLock.value = null
   if (drag.fromSchedule) selectedTaskId.value = ''
@@ -240,6 +266,7 @@ function emitSchedule(task, startTime, insertion = null) {
   selectedTime.value = ''
   draggedTask.value = null
   draggingOver.value = false
+  returningToPool.value = false
   dropPreview.value = null
   dropTargetLock.value = null
   announcement.value = `«${task.title}» поставлено на ${startTime}.`
@@ -414,11 +441,11 @@ function handleEventClick(eventItem, event) {
 </script>
 
 <template>
-  <section class="day-calendar-card" :class="{ interactive, 'drag-over': draggingOver, 'pointer-dragging': Boolean(pointerDrag?.active) }" :aria-label="`Расписание дня с 06:00 до 24:00${interactive ? ', конструктор расписания' : ''}`">
+  <section class="day-calendar-card" :class="{ interactive, 'drag-over': draggingOver, 'returning-to-pool': returningToPool, 'pointer-dragging': Boolean(pointerDrag?.active) }" :aria-label="`Расписание дня с 06:00 до 24:00${interactive ? ', конструктор расписания' : ''}`">
     <div v-if="interactive" class="day-calendar-builder-tools">
-      <div class="day-calendar-unscheduled">
+      <div ref="taskPool" class="day-calendar-unscheduled" :class="{'drop-target':returningToPool}">
         <div class="day-calendar-pool-heading"><strong>Без времени</strong><span>{{unscheduledTasks.length}}</span></div>
-        <p class="day-calendar-pool-hint">Перетащи задачу на шкалу; на телефоне жест тоже работает. Или выбери задачу и нажми на нужное время.</p>
+        <p class="day-calendar-pool-hint">{{returningToPool?'Отпусти — задача вернётся в список без времени.':'Перетащи задачу на шкалу или выбери её и укажи время. Чтобы вернуть её в список, перетащи карточку сюда.'}}</p>
         <div v-if="unscheduledTasks.length" class="day-calendar-task-pool">
           <button v-for="task in unscheduledTasks" :key="task.id" type="button" class="day-calendar-task-chip" :class="[priorityClass(task),{selected:selectedTaskId===task.id}]" :aria-pressed="selectedTaskId===task.id" @click="handlePoolTaskClick(task,$event)" @pointerdown.stop="beginPoolPointerDrag(task,$event)">
             <GripVertical :size="13" aria-hidden="true"/><span><strong>{{task.title}}</strong><small>{{task.duration||30}} мин</small></span>

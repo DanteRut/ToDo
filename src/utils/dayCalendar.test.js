@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDayCalendarPreview,
+  canReturnTaskToPool,
   calendarInsertionAtPosition,
   calendarTaskUnitsFromEvents,
   layoutDayCalendarEvents,
-  planCalendarInsertion
+  planCalendarInsertion,
+  unscheduleTaskForPool
 } from './dayCalendar'
 
 const taskEvent = (id, start, end, extra = {}) => ({
@@ -17,6 +19,19 @@ const taskEvent = (id, start, end, extra = {}) => ({
 })
 
 describe('day calendar layout and placement', () => {
+  it('returns an active loose task to the unscheduled pool without changing its other data', () => {
+    const task = { id: 'task-1', title: 'Подготовить отчёт', date: '2026-10-27', startTime: '10:30', duration: 45, status: 'planned' }
+    expect(canReturnTaskToPool(task)).toBe(true)
+    expect(unscheduleTaskForPool(task)).toEqual({ ...task, startTime: '' })
+  })
+
+  it('does not return completed, inactive, or chained tasks to the loose-task pool', () => {
+    expect(canReturnTaskToPool({ id: 'done', startTime: '10:00', done: true })).toBe(false)
+    expect(canReturnTaskToPool({ id: 'waiting', startTime: '10:00', status: 'waiting' })).toBe(false)
+    expect(canReturnTaskToPool({ id: 'chain-member', chainId: 'chain-1', startTime: '10:00' })).toBe(false)
+    expect(unscheduleTaskForPool({ id: 'unscheduled', startTime: '' })).toBeNull()
+  })
+
   it('keeps task cards in three responsive lanes and preserves their real duration', () => {
     const events = layoutDayCalendarEvents([
       taskEvent('a', 600, 630),

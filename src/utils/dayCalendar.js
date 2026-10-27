@@ -6,6 +6,15 @@ export const DAY_CALENDAR_HOUR_HEIGHT = 64
 export const DAY_CALENDAR_MIN_EVENT_HEIGHT = 42
 export const DAY_CALENDAR_MIN_EVENT_MINUTES = DAY_CALENDAR_MIN_EVENT_HEIGHT * 60 / DAY_CALENDAR_HOUR_HEIGHT
 
+export function canReturnTaskToPool(task) {
+  return Boolean(task && !task.chainId && !task.done && !['someday', 'waiting', 'cancelled', 'archived'].includes(task.status))
+}
+
+export function unscheduleTaskForPool(task) {
+  if (!canReturnTaskToPool(task) || !task.startTime) return null
+  return { ...task, startTime: '' }
+}
+
 function taskEventDuration(event) {
   const sourceDuration = Number(event?.source?.duration)
   if (Number.isFinite(sourceDuration) && sourceDuration > 0) return sourceDuration

@@ -16,7 +16,7 @@ import {
 } from 'lucide-vue-next'
 import { isBlocked, smartNext, nextRecurringDate, createRecurringOccurrence, stopRecurringSeries, computeChainTimes, currentTimeOfDay, buildChainSchedulePreview, chainScheduleStart, pluralize } from './utils/planner'
 import { buildDayTimeline, commuteWindowBeforeFirstClass, dayCapacity, focusLoadMinutes, focusLoadPercent, freeWindows, fromMinutes, toMinutes } from './utils/dayPlan'
-import { planCalendarInsertion } from './utils/dayCalendar'
+import { planCalendarInsertion, unscheduleTaskForPool } from './utils/dayCalendar'
 import { DAY_SCHEDULE_DRAG_PIXELS_PER_STEP, DAY_SCHEDULE_END, DAY_SCHEDULE_START, scheduleTimeAfterVerticalDrag } from './utils/daySchedule'
 import { classAttendanceForDate, toggleClassAttendance, withClassAttendance } from './utils/classAttendance'
 import { habitValueForDate, habitsForDate, homeworkForDate, tasksForDate, toggleHabitForDate } from './utils/dateContext'
@@ -906,6 +906,14 @@ async function scheduleTaskByCalendarInsertion(savedTask,insertion){
   const placementMessage=plan.mode==='between'?`между задачами на ${minToTime(plan.start)}`:`${plan.mode==='before'?'перед':'после'} «${store.tasks.value.find(item=>item.id===insertion.targetTaskId)?.title||plan.target.title}»`
   const result=`${insertedLabel} вставлено ${placementMessage}${shiftMessage}`
   flash(conflict?`${result}, но есть пересечение с «${conflict.title}»`:result)
+  syncSoon()
+}
+async function unscheduleTaskFromCalendar({task}){
+  const savedTask=store.tasks.value.find(item=>item.id===task?.id)
+  const unscheduledTask=unscheduleTaskForPool(savedTask)
+  if(!unscheduledTask)return
+  await store.save(unscheduledTask)
+  flash(`«${savedTask.title}» возвращено в список «Без времени»`)
   syncSoon()
 }
 async function scheduleTaskFromCalendar({task,startTime,insertion}){
@@ -1860,7 +1868,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
           <details class="today-day-calendar card">
             <summary><span class="day-calendar-summary-copy"><strong>Весь день · 06:00–24:00</strong><small>{{dayScheduleSummary}}</small></span><span class="day-calendar-summary-count">Показать расписание</span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
             <div class="day-calendar-inline-action"><button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="13"/> Границы дня</button></div>
-            <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
+            <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @unschedule-task="unscheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </details>
           <DayBalance
             :load-minutes="workloadMinutes"
@@ -1952,7 +1960,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
             <summary><span class="day-calendar-summary-copy"><strong>Конструктор дня · {{format(parseISO(selectedDate),'d MMMM',{locale:ru})}} · 06:00–24:00</strong><small>{{dayScheduleSummary}}</small></span><ChevronDown class="details-chevron" :size="16" aria-hidden="true"/></summary>
             <div class="day-calendar-plan-date"><label for="day-calendar-date">Дата планирования</label><input id="day-calendar-date" class="input" type="date" :value="selectedDate" @change="selectedDate=$event.target.value||todayKey"/><button type="button" class="ghost-btn" @click="openReview('morning')"><Sunrise :size="13"/> Границы дня</button></div>
             <div class="day-calendar-plan-capacity" :class="{overload:capacity.overload}"><Gauge :size="16" aria-hidden="true"/><span><strong>{{Math.round(capacity.planned/60*10)/10}} / {{Math.round(capacity.available/60*10)/10}} ч</strong><small v-if="capacity.overload">Перегрузка {{capacity.overload}} мин</small><small v-else>Свободно {{capacity.free}} мин</small></span></div>
-            <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
+            <DayCalendar :events="unifiedTimeline" :task-units="calendarTaskUnits" :unscheduled-tasks="planCalendarUnscheduledTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @unschedule-task="unscheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </details>
           <div class="section-head"><h2>Задачи и цепочки</h2><div class="row" style="flex:0"><button class="ghost-btn" @click="openTask()"><Plus :size="16"/> Задача</button></div></div>
           <div class="filter-bar"><button v-for="f in [{id:'all',t:'Активные'},{id:'completed',t:'Завершённые'},{id:'overdue',t:'Просрочено'},{id:'blocked',t:'Ожидают'},{id:'quick',t:'≤ 15 минут'},{id:'important',t:'Важные'},{id:'waiting',t:'Ожидание'},{id:'someday',t:'Когда-нибудь'}]" :key="f.id" class="filter-chip" :class="{active:taskFilter===f.id}" @click="taskFilter=f.id">{{f.t}}<span v-if="f.id==='overdue'&&overdueTasks.length">{{overdueTasks.length}}</span></button><select v-if="allTags.length" class="select compact" v-model="selectedTag"><option value="all">Все теги</option><option v-for="tag in allTags" :key="tag">{{tag}}</option></select></div>
@@ -2021,7 +2029,7 @@ onBeforeUnmount(()=>{persistFocus();uninstallDialogAccessibility();document.remo
               @edit-supplement="editSupplement"
               @remove-supplement="removeSupplement"
             />
-            <DayCalendar :events="calendarDayEvents" :task-units="calendarDayTaskUnits" :unscheduled-tasks="calendarDayTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @open-event="openTimelineItem"/>
+            <DayCalendar :events="calendarDayEvents" :task-units="calendarDayTaskUnits" :unscheduled-tasks="calendarDayTasks" :wake-time="dayScheduleWakeTime" :work-end-time="dayScheduleWorkEndTime" :sleep-time="dayScheduleSleepTime" interactive @schedule-task="scheduleTaskFromCalendar" @unschedule-task="unscheduleTaskFromCalendar" @open-event="openTimelineItem"/>
           </div>
         </template>
 
