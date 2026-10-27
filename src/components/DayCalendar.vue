@@ -93,7 +93,7 @@ function eventClass(event) {
     event.preview === 'invalid' ? ['day-calendar-event--preview', 'day-calendar-event--preview-invalid'] : null,
     event.preview === 'shifted' ? 'day-calendar-event--shifted-preview' : null,
     event.preview === 'source' ? 'day-calendar-event--source-preview' : null,
-    { completed: Boolean(event.source?.done), draggable: canDragEvent(event) }
+    { completed: Boolean(event.source?.done), draggable: canDragEvent(event), 'day-calendar-event--not-attending': event.type === 'class' && event.attending === false }
   ]
 }
 function canDragEvent(event) {

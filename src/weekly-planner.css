@@ -160,6 +160,9 @@
 .weekly24-class-count{color:var(--green)!important;font-variant-numeric:tabular-nums}
 .weekly24-event-class{cursor:pointer;transition:opacity .12s,filter .12s,box-shadow .12s}
 .weekly24-event-class.attending{box-shadow:inset 2px 0 var(--green)}
-.weekly24-event-class.not-attending{border-style:dashed;border-color:#515662;background:#24262e;color:#b1b5bf;opacity:.5}
-.weekly24-event-class.not-attending:hover{opacity:.86;filter:brightness(1.08)}
+.weekly24-event-class.not-attending{border-style:dashed;border-color:#656b76;background-color:#24262e;background-image:repeating-linear-gradient(135deg,transparent 0 9px,rgba(156,163,175,.38) 9px 11px);color:#b1b5bf;opacity:.72}
+.weekly24-event-class.not-attending:hover{opacity:.9;filter:brightness(1.08)}
+.study-lesson.study-lesson-not-attending{border-radius:8px;background-color:#1b1c20;background-image:repeating-linear-gradient(135deg,transparent 0 10px,rgba(156,163,175,.2) 10px 12px);opacity:.66}
+.study-lesson.study-lesson-not-attending .lesson-main>strong{text-decoration:line-through;text-decoration-color:#9ca3af;text-decoration-thickness:1px}
+
 .weekly24-event-class:focus-visible{z-index:5;outline:2px solid #7dd3fc;outline-offset:1px}

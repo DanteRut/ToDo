@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { classAttendanceForDate } from './classAttendance'
 import { buildDayTimeline, dayCapacity, focusLoadMinutes, focusLoadPercent, freeWindows, layoutOverlaps } from './dayPlan'
 
 describe('day planning', () => {
@@ -16,6 +17,35 @@ describe('day planning', () => {
       { start: 480, end: 555, duration: 75 },
       { start: 685, end: 720, duration: 35 }
     ])
+  })
+
+  it('places the commute before the earliest attended class and keeps skipped classes visible without blocking time', () => {
+    const dateKey = '2026-10-26'
+    const scheduledClasses = [
+      { id: 'later', subject: 'Поздняя пара', start: '11:00', end: '12:00' },
+      { id: 'skipped', subject: 'Пропущенная пара', start: '09:00', end: '10:00' },
+      { id: 'first-attended', subject: 'Первая посещаемая', start: '10:30', end: '11:00' }
+    ]
+    const attendedIds = new Set(classAttendanceForDate(dateKey, scheduledClasses, {
+      [dateKey]: ['later', 'first-attended']
+    }))
+    const timeline = buildDayTimeline([], scheduledClasses.map(lesson => ({
+      ...lesson,
+      attending: attendedIds.has(lesson.id)
+    })), 50)
+
+    expect(timeline.find(item => item.type === 'commute')).toMatchObject({ start: 580, end: 630, duration: 50 })
+    expect(timeline.find(item => item.id === 'class-skipped')).toMatchObject({ attending: false, blocksTime: false })
+    expect(freeWindows(timeline, 8 * 60, 11 * 60)[0]).toEqual({ start: 480, end: 580, duration: 100 })
+    expect(focusLoadMinutes({ classes: scheduledClasses.filter(lesson => attendedIds.has(lesson.id)) })).toBe(90)
+  })
+
+  it('does not add a commute when no classes are selected as attended', () => {
+    const timeline = buildDayTimeline([], [
+      { id: 'skipped', subject: 'Пропущенная пара', start: '09:00', end: '10:00', attending: false }
+    ])
+    expect(timeline.some(item => item.type === 'commute')).toBe(false)
+    expect(timeline.find(item => item.id === 'class-skipped')).toBeDefined()
   })
 
   it('sums all tasks, attending classes, workouts, and unlinked homework for the focus load', () => {

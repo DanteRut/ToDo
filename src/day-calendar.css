@@ -34,4 +34,6 @@
 .day-calendar-event--preview-invalid{border-color:#fb7185;background:color-mix(in srgb,#fb7185 26%,var(--panel2));box-shadow:0 0 0 2px color-mix(in srgb,#fb7185 20%,transparent)}
 .day-calendar-event--shifted-preview{z-index:2;border-style:dashed;opacity:.5;filter:saturate(.65);pointer-events:none}
 .day-calendar-event--source-preview{opacity:.28}
+.day-calendar-event--class.day-calendar-event--not-attending{border-color:#656b76;background-color:#24262e;background-image:repeating-linear-gradient(135deg,transparent 0 9px,rgba(156,163,175,.38) 9px 11px);color:#b1b5bf;opacity:.72}
+.day-calendar-event--class.day-calendar-event--not-attending strong{text-decoration:line-through;text-decoration-color:#9ca3af;text-decoration-thickness:1px}
 @media(max-width:760px){.day-calendar-grid{grid-template-columns:38px minmax(0,1fr);min-width:0;padding-right:3px}}

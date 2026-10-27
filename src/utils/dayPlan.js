@@ -22,15 +22,40 @@ export function focusLoadPercent(minutes) {
   return percentage > 100 ? Math.ceil(percentage) : Math.round(percentage)
 }
 
-export function buildDayTimeline(tasks, classes, commuteMinutes = 50) {
+export function commuteWindowBeforeFirstClass(classes = [], commuteMinutes = 50) {
+  const attendedStarts = (Array.isArray(classes) ? classes : [])
+    .filter(lesson => lesson?.attending !== false)
+    .map(lesson => toMinutes(lesson.start))
+    .filter(Number.isFinite)
+  if (!attendedStarts.length) return null
+
+  const end = Math.min(...attendedStarts)
+  const requestedDuration = Math.max(0, Number(commuteMinutes) || 0)
+  const start = Math.max(0, end - requestedDuration)
+  if (end <= start) return null
+  return { start, end, duration: end - start }
+}
+
+export function buildDayTimeline(tasks = [], classes = [], commuteMinutes = 50) {
+  const scheduledClasses = Array.isArray(classes) ? classes : []
+  const commute = commuteWindowBeforeFirstClass(scheduledClasses, commuteMinutes)
   const items = [
-    ...classes.map(lesson => ({ id: `class-${lesson.id}`, type: 'class', title: lesson.subject, start: toMinutes(lesson.start), end: toMinutes(lesson.end), source: lesson })),
+    ...scheduledClasses.map(lesson => {
+      const attending = lesson?.attending !== false
+      return {
+        id: `class-${lesson.id}`,
+        type: 'class',
+        title: lesson.subject,
+        start: toMinutes(lesson.start),
+        end: toMinutes(lesson.end),
+        source: lesson,
+        attending,
+        blocksTime: attending
+      }
+    }),
     ...tasks.filter(task => task.startTime).map(task => ({ id: task.id, type: 'task', title: task.title, start: toMinutes(task.startTime), end: toMinutes(task.startTime) + (Number(task.duration) || 30), source: task }))
   ]
-  if (classes.length) {
-    const first = Math.min(...classes.map(lesson => toMinutes(lesson.start)))
-    items.push({ id: 'commute-university', type: 'commute', title: 'Сборы и дорога до вуза', start: Math.max(0, first - commuteMinutes), end: first, duration: commuteMinutes })
-  }
+  if (commute) items.push({ id: 'commute-university', type: 'commute', title: 'Сборы и дорога до вуза', ...commute })
   return items.sort((a, b) => a.start - b.start || a.end - b.end)
 }
 
@@ -44,7 +69,7 @@ export function dayCapacity(tasks, classes, commuteMinutes = 50, dayStart = 8 * 
 }
 
 export function freeWindows(items, dayStart = 8 * 60, dayEnd = 22 * 60) {
-  const busy = items.map(item => ({ start: Math.max(dayStart, item.start), end: Math.min(dayEnd, item.end) })).filter(item => item.end > dayStart && item.start < dayEnd).sort((a, b) => a.start - b.start)
+  const busy = items.filter(item => item.blocksTime !== false).map(item => ({ start: Math.max(dayStart, item.start), end: Math.min(dayEnd, item.end) })).filter(item => item.end > dayStart && item.start < dayEnd).sort((a, b) => a.start - b.start)
   const merged = []
   for (const item of busy) {
     const last = merged.at(-1)
